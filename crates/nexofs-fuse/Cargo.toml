@@ -1,0 +1,19 @@
+[package]
+name = "nexofs-fuse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nexofs-domain.workspace = true
+nexofs-sync-core.workspace = true
+nexofs-provider-api.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+tracing.workspace = true
+libc = "0.2"
+# Sem a feature "libfuse": no Linux o fuser fala o protocolo FUSE diretamente
+# via syscalls e usa apenas o binário `fusermount3` para obter o fd de
+# montagem — evita depender de libfuse3-devel/pkg-config no sistema de build
+# (ADR-002).
+fuser = { version = "0.14", default-features = false }

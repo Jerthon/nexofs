@@ -1,0 +1,17 @@
+Source: nexofs
+Section: utils
+Priority: optional
+Maintainer: NexoFS <noreply@nexofs.dev>
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.70)
+Standards-Version: 4.6.2
+Homepage: https://github.com/nexofs/nexofs
+Rules-Requires-Root: no
+
+Package: nexofs
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, fuse3
+Description: Sistema de arquivos multi-nuvem (FUSE)
+ NexoFS monta contas de nuvem como um sistema de
+ arquivos FUSE local, com sincronização incremental, cache de conteúdo,
+ exclusões estilo .gitignore e resolução de conflitos completa. Inclui
+ o daemon nexofsd e a CLI administrativa nexofs.

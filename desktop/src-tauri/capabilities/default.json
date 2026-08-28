@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissões da janela principal do NexoFS — só os comandos que falam com a API local do daemon (SPEC §2.2.2: nunca acesso direto a SQLite/tokens).",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-message"]
+}

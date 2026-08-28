@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+
+# T5-13: mesma simplificação do RPM (T5-12) — build local via `cargo
+# build`, sem vendorização das dependências. Não testado nesta máquina
+# (sem dpkg-deb/toolchain Debian disponível); ver NexoFS_TASKS_v1.0.md.
+
+export CARGO_HOME = $(CURDIR)/debian/.cargo-home
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked -p nexofsd -p nexofs-cli
+
+override_dh_auto_install:
+	install -Dm755 target/release/nexofsd debian/nexofs/usr/bin/nexofsd
+	install -Dm755 target/release/nexofs debian/nexofs/usr/bin/nexofs
+
+override_dh_auto_test:
+	# Testes de verdade já rodam em CI/`cargo test --workspace`; o build
+	# do pacote em si não precisa repeti-los.
+
+override_dh_installsystemd:
+	cp packaging/systemd/nexofsd.service debian/nexofsd.service
+	dh_installsystemd --user --no-enable --no-start --name nexofsd

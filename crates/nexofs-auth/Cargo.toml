@@ -1,0 +1,20 @@
+[package]
+name = "nexofs-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nexofs-domain.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "rt"] }
+thiserror.workspace = true
+tracing.workspace = true
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+keyring = "2"
+url = "2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

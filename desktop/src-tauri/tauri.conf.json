@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NexoFS",
+  "version": "0.1.0",
+  "identifier": "dev.nexofs.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NexoFS",
+        "width": 1000,
+        "height": 700,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "rpm"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"],
+    "category": "Utility",
+    "shortDescription": "Sistema de arquivos multi-nuvem (FUSE)",
+    "longDescription": "Interface gráfica do NexoFS: monta contas de nuvem como pastas locais, com sincronização incremental, cache de conteúdo e fixação seletiva de arquivos.",
+    "homepage": "https://github.com/nexofs/nexofs",
+    "linux": {
+      "deb": {
+        "depends": ["nexofs"]
+      },
+      "rpm": {
+        "depends": ["nexofs"]
+      }
+    }
+  }
+}

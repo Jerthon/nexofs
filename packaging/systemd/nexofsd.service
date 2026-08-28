@@ -1,0 +1,46 @@
+[Unit]
+Description=NexoFS user daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/nexofsd
+Restart=on-failure
+RestartSec=5
+
+# SPEC §2.2.4 pede "hardening básico", mas T5-11 validou ao vivo (unidade
+# --user real, `systemctl --user start`, 3 contas OneDrive reais) que TODA
+# a família de diretivas de sandboxing do systemd quebra a montagem FUSE
+# aqui — não é uma suposição, é o resultado observado testando uma a uma:
+#
+#   NoNewPrivileges=true            -> fusermount3: mount failed: Operation not permitted
+#   PrivateTmp=true (sozinho!)      -> idem
+#   ProtectSystem=strict + outros   -> idem
+#   RestrictSUIDSGID/LockPersonality/MemoryDenyWriteExecute/
+#   RestrictRealtime/RestrictNamespaces (sem nenhuma das acima)  -> idem
+#
+# A causa raiz é a mesma em todos os casos: este binário monta FUSE sem
+# privilégio via `fusermount3` (setuid-root) — é assim que `fuser` monta
+# sem exigir CAP_SYS_ADMIN do processo chamador (ver `nexofs-fuse/Cargo.toml`,
+# `default-features = false` desativa o link com libfuse e usa esse caminho
+# puro-Rust). `NoNewPrivileges=true` desativa a escalada por setuid
+# diretamente; TODA diretiva Protect*/Private* cria um namespace de mount
+# por unidade — e para unidades `--user` isso passa por um user namespace
+# não privilegiado, onde o kernel também neutraliza setuid/setgid na
+# execução. As diretivas "seccomp-only" testadas por último falharam pelo
+# mesmo motivo por uma razão documentada do próprio systemd: elas IMPLICAM
+# `NoNewPrivileges=yes` internamente (systemd.exec(5)), então voltam ao
+# primeiro caso.
+#
+# Ou seja: qualquer hardening adicional aqui exige primeiro resolver a
+# montagem FUSE em si — via `AmbientCapabilities=CAP_SYS_ADMIN` combinado
+# com uma build ligada à libfuse (`fuser` com a feature `libfuse`, que evita
+# o fork+exec de `fusermount3`) ou equivalente. Isso é trabalho de
+# investigação em aberto, não uma linha de configuração — fica registrado
+# em NexoFS_TASKS_v1.0.md para a Fase 6 (endurecimento), em vez de aplicar
+# um hardening que a própria SPEC pede para validar antes de usar, e que
+# aqui provadamente quebra o daemon.
+
+[Install]
+WantedBy=default.target

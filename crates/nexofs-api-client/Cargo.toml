@@ -1,0 +1,25 @@
+[package]
+name = "nexofs-api-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["net", "io-util"] }
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+nexofs-domain.workspace = true
+nexofs-local-api.workspace = true
+nexofs-sync-core.workspace = true
+nexofs-api-governor.workspace = true
+nexofs-content-cache.workspace = true
+nexofs-overlay.workspace = true
+nexofs-metadata-store.workspace = true
+nexofs-provider-api.workspace = true
+nexofs-provider-fake.workspace = true
+rusqlite.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "macros", "rt-multi-thread", "time"] }
+tempfile = "3"

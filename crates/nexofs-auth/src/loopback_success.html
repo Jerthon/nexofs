@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>NexoFS</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #eef4ff 0%, #eafbf8 100%);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1b1e24;
+  }
+  .card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 2.5rem 2.75rem;
+    max-width: 380px;
+    text-align: center;
+    box-shadow: 0 8px 30px rgba(16, 24, 40, 0.12);
+  }
+  .check {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 1.25rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2f6fed, #14b8a6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .check svg { width: 28px; height: 28px; }
+  h1 {
+    font-size: 1.15rem;
+    margin: 0 0 0.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #2f6fed, #14b8a6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  p {
+    margin: 0 0 1.5rem;
+    font-size: 0.92rem;
+    color: #5b6270;
+    line-height: 1.5;
+  }
+  button {
+    font: inherit;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem 1.4rem;
+    background: #2f6fed;
+    color: white;
+    cursor: pointer;
+  }
+  button:hover { background: #2557c0; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="check">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/>
+      </svg>
+    </div>
+    <h1>NexoFS</h1>
+    <p>Login concluído. Você já pode voltar ao NexoFS e fechar esta aba manualmente.</p>
+    <button onclick="window.close()">Fechar esta aba</button>
+  </div>
+  <script>
+    // Fecha sozinha só quando o navegador permite (ex.: esta aba foi aberta
+    // por outra página via `window.open`) — a maioria dos navegadores
+    // bloqueia `window.close()` em qualquer aba que eles mesmos abriram a
+    // partir de uma URL do sistema (é o caso daqui, via `xdg-open`), por
+    // segurança contra páginas fechando abas que não abriram. Não há
+    // contorno confiável em JavaScript para isso; por isso nenhum texto
+    // acima promete fechamento automático.
+    window.close();
+  </script>
+</body>
+</html>

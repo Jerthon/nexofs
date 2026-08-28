@@ -1,0 +1,7 @@
+nexofs (0.1.0-1) unstable; urgency=medium
+
+  * Primeiro pacote DEB (T5-13) — arquivos de controle não testados nesta
+    máquina (sem dpkg-deb/toolchain Debian disponível); validar em
+    Ubuntu LTS/KDE Neon reais antes do release (T5-14).
+
+ -- NexoFS <noreply@nexofs.dev>  Thu, 27 Aug 2026 12:00:00 -0300

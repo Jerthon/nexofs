@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nexofs-domain",
+    "crates/nexofs-sync-core",
+    "crates/nexofs-provider-api",
+    "crates/nexofs-provider-fake",
+    "crates/nexofs-provider-onedrive",
+    "crates/nexofs-provider-googledrive",
+    "crates/nexofs-api-governor",
+    "crates/nexofs-metadata-store",
+    "crates/nexofs-content-cache",
+    "crates/nexofs-overlay",
+    "crates/nexofs-ignore",
+    "crates/nexofs-conflicts",
+    "crates/nexofs-fuse",
+    "crates/nexofs-auth",
+    "crates/nexofs-local-api",
+    "crates/nexofs-api-client",
+    "crates/nexofsd",
+    "crates/nexofs-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/nexofs/nexofs"
+publish = false
+
+[workspace.dependencies]
+nexofs-domain = { path = "crates/nexofs-domain" }
+nexofs-sync-core = { path = "crates/nexofs-sync-core" }
+nexofs-provider-api = { path = "crates/nexofs-provider-api" }
+nexofs-provider-fake = { path = "crates/nexofs-provider-fake" }
+nexofs-provider-onedrive = { path = "crates/nexofs-provider-onedrive" }
+nexofs-provider-googledrive = { path = "crates/nexofs-provider-googledrive" }
+nexofs-api-governor = { path = "crates/nexofs-api-governor" }
+nexofs-metadata-store = { path = "crates/nexofs-metadata-store" }
+nexofs-content-cache = { path = "crates/nexofs-content-cache" }
+nexofs-overlay = { path = "crates/nexofs-overlay" }
+nexofs-ignore = { path = "crates/nexofs-ignore" }
+nexofs-conflicts = { path = "crates/nexofs-conflicts" }
+nexofs-fuse = { path = "crates/nexofs-fuse" }
+nexofs-auth = { path = "crates/nexofs-auth" }
+nexofs-local-api = { path = "crates/nexofs-local-api" }
+nexofs-api-client = { path = "crates/nexofs-api-client" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+anyhow = "1"
+ignore = "0.4"

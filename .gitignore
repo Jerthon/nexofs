@@ -1,0 +1,25 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Segredos / config local — nunca versionar
+.env
+.env.*
+!.env.example
+
+# Frontend (desktop/)
+desktop/node_modules
+desktop/dist
+desktop/src-tauri/target
+# Tauri regenera isso a cada build a partir de tauri.conf.json/capabilities/
+desktop/src-tauri/gen/schemas
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Estado local desta sessão do Claude Code, não faz parte do projeto
+.claude/scheduled_tasks.lock

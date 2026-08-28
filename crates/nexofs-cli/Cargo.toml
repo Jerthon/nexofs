@@ -1,0 +1,18 @@
+[package]
+name = "nexofs-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nexofs"
+path = "src/main.rs"
+
+[dependencies]
+nexofs-domain.workspace = true
+nexofs-api-client.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+clap = { version = "4", features = ["derive"] }
+serde_json.workspace = true
+anyhow.workspace = true

@@ -1,0 +1,35 @@
+[workspace]
+# Projeto Cargo independente do workspace principal (`../../Cargo.toml`) —
+# mesma separação de `desktop/` vs `crates/` do layout da SPEC §3.1: um
+# app Tauri tem cadência de build/release própria (bundling nativo, ícones,
+# frontend em outro ecossistema) e não precisa competir pelo mesmo
+# `Cargo.lock`/tempo de compilação de todo o resto do workspace a cada
+# `cargo build` ali. Ainda depende dos crates de `../../crates/*` por
+# caminho relativo normalmente — isso não exige workspace compartilhado.
+
+[package]
+name = "nexofs-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+name = "nexofs_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nexofs-domain = { path = "../../crates/nexofs-domain" }
+nexofs-api-client = { path = "../../crates/nexofs-api-client" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

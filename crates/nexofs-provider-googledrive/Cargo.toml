@@ -1,0 +1,25 @@
+[package]
+name = "nexofs-provider-googledrive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nexofs-domain.workspace = true
+nexofs-provider-api.workspace = true
+nexofs-auth.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+url = "2"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+percent-encoding = "2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
