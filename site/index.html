@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexoFS — Todas as suas nuvens em um único filesystem</title>
+<meta name="description" content="NexoFS monta OneDrive, Google Drive e outras nuvens como um sistema de arquivos FUSE local no Linux, com sincronização incremental, cache offline e resolução de conflitos nunca-silenciosa.">
+<link rel="icon" type="image/png" href="assets/Logo_NexoFS_sem_fundo_quadrado.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <img src="assets/Logo_NexoFS_sem_fundo_escuro.png" alt="NexoFS">
+    </a>
+    <div class="nav-links">
+      <a href="#recursos">Recursos</a>
+      <a href="#arquitetura">Arquitetura</a>
+      <a href="#principios">Princípios</a>
+      <a href="#instalar">Instalar</a>
+      <a href="https://github.com/jerthon/nexofs" target="_blank" rel="noopener">GitHub</a>
+    </div>
+    <a class="btn btn-primary" href="https://github.com/jerthon/nexofs" target="_blank" rel="noopener">Ver no GitHub</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <h1>Todas as suas nuvens,<br><span class="grad">um único filesystem.</span></h1>
+    <p class="lead">NexoFS monta suas contas de nuvem como pastas locais de verdade — via FUSE, no Linux. Sincronização incremental, cache de conteúdo, fixação offline e conflitos que nunca são descartados em silêncio.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#instalar">Começar agora</a>
+      <a class="btn btn-ghost" href="https://github.com/jerthon/nexofs" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Código-fonte
+      </a>
+    </div>
+    <div class="hero-note">Sem lock-in de provedor · núcleo agnóstico de nuvem · daemon roda mesmo com a janela fechada</div>
+
+    <div class="providers">
+      <div class="chip">☁️ OneDrive</div>
+      <div class="chip">🗂️ Google Drive</div>
+      <div class="chip soon">＋ Novos provedores via <code>CloudProvider</code></div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar"><span></span><span></span><span></span></div>
+      <pre><span class="cmt"># status geral: contas, filas de sync, cache</span>
+<span class="prompt">$</span> nexofs status
+<span class="ok">✓</span> 2 contas montadas · 0 conflitos abertos · fila sincronizada
+
+<span class="cmt"># manter uma pasta sempre disponível offline</span>
+<span class="prompt">$</span> nexofs pin work-onedrive Projetos/2026 --recursive
+<span class="ok">✓</span> fixado — download em segundo plano iniciado
+
+<span class="cmt"># conflito nunca é descartado sem você decidir</span>
+<span class="prompt">$</span> nexofs conflicts
+<span class="ok">1</span> conflito aberto: Relatorio.docx (editado local + remoto)</pre>
+    </div>
+  </div>
+</header>
+
+<section class="section" id="recursos">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Recursos</div>
+      <h2>Feito para quem confia dados de verdade à nuvem</h2>
+      <p>Cada decisão de design prioriza previsibilidade: nada é baixado sem pedir, nada é sobrescrito sem avisar.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10Z"/></svg></div>
+        <h3>Multi-provedor</h3>
+        <p>OneDrive e Google Drive hoje, com o núcleo pronto para novos provedores via uma trait única (<code>CloudProvider</code>).</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+        <h3>Indexação preguiçosa</h3>
+        <p>Nada é listado ou baixado até você navegar até lá — sem varredura inicial em nuvens gigantes.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 22h6M5 3h14l-1.5 9h-11L5 3Z"/></svg></div>
+        <h3>Fixação seletiva</h3>
+        <p>Marque qualquer arquivo ou pasta para ficar sempre disponível offline; o resto permanece só-na-nuvem até ser aberto.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+        <h3>Cache de conteúdo local</h3>
+        <p>Contabilização por conta — limpo, modificado, parcial ou mantido localmente — sempre visível.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg></div>
+        <h3>Exclusões estilo .gitignore</h3>
+        <p>Perfis sugeridos automaticamente a partir de manifestos do projeto (<code>package.json</code>, <code>Cargo.toml</code>, etc).</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg></div>
+        <h3>Conflitos nunca-silenciosos</h3>
+        <p>Nenhuma escrita concorrente é descartada sem você decidir explicitamente o que fazer.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Interface desktop</h3>
+        <p>App em Tauri com abas para contas, arquivos, exclusões, operações, conflitos, cache e log de sync em tempo real.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg></div>
+        <h3>CLI de administração</h3>
+        <p><code>nexofs</code> cobre tudo que a interface gráfica faz — ideal para servidores e automação.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+        <h3>Daemon separado da UI</h3>
+        <p><code>nexofsd</code> continua sincronizando mesmo com a janela fechada.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="arquitetura">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Arquitetura</div>
+      <h2>Núcleo agnóstico de nuvem</h2>
+      <p>O <code>nexofs-sync-core</code> não conhece OneDrive nem Google Drive — fala apenas com a trait <code>CloudProvider</code>.</p>
+    </div>
+    <div class="arch-diagram">
+      <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4b5570"/>
+          </marker>
+        </defs>
+        <style>
+          .box { fill:#171b26; stroke:#2b3244; stroke-width:1.5; rx:10; }
+          .lbl { fill:#e9ecf4; font-family: Inter, sans-serif; font-size:14px; font-weight:600; }
+          .sub { fill:#9aa3b8; font-family: Inter, sans-serif; font-size:11px; }
+          .edge { stroke:#4b5570; stroke-width:1.5; fill:none; marker-end:url(#arrow); }
+          .edge-lbl { fill:#6b7387; font-family: "JetBrains Mono", monospace; font-size:10px; }
+        </style>
+
+        <rect class="box" x="20" y="30" width="170" height="60" />
+        <text class="lbl" x="105" y="55" text-anchor="middle">nexofs-desktop</text>
+        <text class="sub" x="105" y="74" text-anchor="middle">Tauri / UI</text>
+
+        <rect class="box" x="20" y="200" width="170" height="60" />
+        <text class="lbl" x="105" y="225" text-anchor="middle">nexofs (CLI)</text>
+        <text class="sub" x="105" y="244" text-anchor="middle">administração</text>
+
+        <rect class="box" x="365" y="110" width="170" height="70" fill="#1a2130"/>
+        <text class="lbl" x="450" y="138" text-anchor="middle">nexofsd</text>
+        <text class="sub" x="450" y="157" text-anchor="middle">daemon de sincronização</text>
+
+        <rect class="box" x="710" y="30" width="170" height="60" />
+        <text class="lbl" x="795" y="55" text-anchor="middle">Ponto de montagem</text>
+        <text class="sub" x="795" y="74" text-anchor="middle">FUSE local</text>
+
+        <rect class="box" x="710" y="200" width="170" height="60" />
+        <text class="lbl" x="795" y="225" text-anchor="middle">OneDrive / GDrive</text>
+        <text class="sub" x="795" y="244" text-anchor="middle">HTTPS</text>
+
+        <path class="edge" d="M190,60 C270,60 300,120 365,138" />
+        <text class="edge-lbl" x="215" y="80">socket local</text>
+
+        <path class="edge" d="M190,230 C270,230 300,170 365,152" />
+        <text class="edge-lbl" x="215" y="215">socket local</text>
+
+        <path class="edge" d="M535,140 C610,140 640,80 710,60" />
+        <text class="edge-lbl" x="580" y="90">FUSE</text>
+
+        <path class="edge" d="M535,155 C610,155 640,210 710,225" />
+        <text class="edge-lbl" x="580" y="205">HTTPS</text>
+      </svg>
+    </div>
+    <p class="arch-caption">
+      Todo tráfego externo passa por um <em>governor</em> central de taxa/circuit-breaker (<code>nexofs-api-governor</code>);
+      o índice local vive em SQLite com WAL (<code>nexofs-metadata-store</code>).
+      Decisões documentadas em <a href="https://github.com/jerthon/nexofs/tree/main/docs/adr" target="_blank" rel="noopener">docs/adr/</a>.
+    </p>
+  </div>
+</section>
+
+<section class="section" id="principios">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Princípios de design</div>
+      <h2>Cada trade-off é documentado</h2>
+      <p>As decisões arquiteturais do NexoFS vivem em Architecture Decision Records — com o porquê de cada escolha.</p>
+    </div>
+    <div class="principles">
+      <div class="principle">
+        <div class="num">ADR-005</div>
+        <div>
+          <h4>Daemon separado da UI</h4>
+          <p>A sincronização não depende da janela estar aberta — o daemon é o dono do estado.</p>
+        </div>
+      </div>
+      <div class="principle">
+        <div class="num">ADR-006</div>
+        <div>
+          <h4>Núcleo agnóstico de provedor</h4>
+          <p>Novo provedor de nuvem = nova implementação de <code>CloudProvider</code>, sem tocar no core.</p>
+        </div>
+      </div>
+      <div class="principle">
+        <div class="num">ADR-008</div>
+        <div>
+          <h4>Indexação preguiçosa por padrão</h4>
+          <p>Montar uma conta não dispara varredura completa — só o que você abre é indexado.</p>
+        </div>
+      </div>
+      <div class="principle">
+        <div class="num">ADR-012</div>
+        <div>
+          <h4>Conflitos nunca sobrescrevem em silêncio</h4>
+          <p>Escrita concorrente vira conflito explícito, nunca perda de dados invisível.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="instalar">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Instalação</div>
+      <h2>Pacote pronto ou a partir do código-fonte</h2>
+      <p>Instaladores <code>.deb</code> e <code>.rpm</code> do daemon + CLI, organizados por versão.</p>
+    </div>
+
+    <div class="hero-actions" style="margin-bottom:20px;">
+      <a class="btn btn-primary" href="downloads/0.1.0/nexofs_0.1.0-1_amd64.deb">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        Baixar .deb (v0.1.0)
+      </a>
+      <a class="btn btn-primary" href="downloads/0.1.0/nexofs-0.1.0-1.fc44.x86_64.rpm">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        Baixar .rpm (v0.1.0)
+      </a>
+    </div>
+    <div class="hero-note" style="margin-bottom:56px;">
+      <a href="downloads/index.html" style="color:var(--text-dimmer);">Todas as versões</a> ·
+      <a href="https://github.com/jerthon/nexofs/releases" target="_blank" rel="noopener" style="color:var(--text-dimmer);">Notas de release no GitHub</a>
+    </div>
+
+    <div class="install-tabs" role="tablist">
+      <button class="tab-btn" role="tab" aria-selected="true" data-tab="daemon">Daemon + CLI</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-tab="desktop">Interface desktop</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-tab="gdrive">Google Drive</button>
+    </div>
+
+    <div class="tab-panel active" data-panel="daemon">
+      <pre class="code-block"><span class="cmt"># requer Linux + FUSE 3, Rust (edição 2021) e Cargo</span>
+cargo build --release -p nexofsd -p nexofs-cli</pre>
+    </div>
+    <div class="tab-panel" data-panel="desktop">
+      <pre class="code-block"><span class="cmt"># gera .deb e .rpm em desktop/src-tauri/target/release/bundle/</span>
+cd desktop
+npm install
+cargo tauri build</pre>
+    </div>
+    <div class="tab-panel" data-panel="gdrive">
+      <pre class="code-block"><span class="cmt"># credenciais do app, não do usuário — ver ADR-015</span>
+export NEXOFS_GOOGLEDRIVE_CLIENT_ID="..."
+export NEXOFS_GOOGLEDRIVE_CLIENT_SECRET="..."
+cargo build --release -p nexofsd</pre>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>Pronto para unificar suas nuvens?</h2>
+    <p>Código aberto, sob licença AGPL-3.0-or-later. Contribuições são bem-vindas.</p>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="https://github.com/jerthon/nexofs" target="_blank" rel="noopener">Ver repositório</a>
+      <a class="btn btn-ghost" href="https://github.com/jerthon/nexofs#readme" target="_blank" rel="noopener">Ler documentação</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="fbrand">
+      <img src="assets/Logo_NexoFS_sem_fundo_escuro.png" alt="NexoFS">
+      <span>© 2026 NexoFS · AGPL-3.0-or-later</span>
+    </div>
+    <div class="flinks">
+      <a href="https://github.com/jerthon/nexofs" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/jerthon/nexofs/tree/main/docs/adr" target="_blank" rel="noopener">ADRs</a>
+      <a href="https://github.com/jerthon/nexofs/blob/main/docs/NexoFS_SPEC_v1.0.md" target="_blank" rel="noopener">Especificação</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const tabs = document.querySelectorAll('.tab-btn');
+  const panels = document.querySelectorAll('.tab-panel');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.setAttribute('aria-selected', 'false'));
+      panels.forEach(p => p.classList.remove('active'));
+      tab.setAttribute('aria-selected', 'true');
+      document.querySelector(`.tab-panel[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

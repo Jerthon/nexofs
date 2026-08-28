@@ -1,0 +1,82 @@
+name: Publicar instaladores (deb/rpm)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar toolchain de empacotamento Debian
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper devscripts build-essential pkg-config libfuse3-dev
+
+      - name: Build do pacote .deb
+        run: |
+          ln -s packaging/deb/debian debian
+          dpkg-buildpackage -us -uc -b
+
+      - name: Coletar artefato
+        run: |
+          mkdir -p dist
+          mv ../nexofs_*.deb dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    container: fedora:40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar toolchain de empacotamento RPM
+        run: |
+          dnf install -y cargo rust systemd-rpm-macros rpm-build fuse3-devel gcc tar git
+
+      - name: Montar árvore de build do rpmbuild
+        run: |
+          version=$(grep -m1 '^Version:' packaging/rpm/nexofs.spec | awk '{print $2}')
+          mkdir -p /tmp/rpmbuild/SOURCES /tmp/rpmbuild/SPECS
+          git archive --prefix="nexofs-${version}/" -o "/tmp/rpmbuild/SOURCES/nexofs-${version}.tar.gz" HEAD
+          cp packaging/rpm/nexofs.spec /tmp/rpmbuild/SPECS/
+
+      - name: Build do pacote .rpm
+        run: rpmbuild --define "_topdir /tmp/rpmbuild" -bb /tmp/rpmbuild/SPECS/nexofs.spec
+
+      - name: Coletar artefato
+        run: |
+          mkdir -p dist
+          find /tmp/rpmbuild/RPMS -name '*.rpm' -exec mv {} dist/ \;
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: dist/*.rpm
+
+  release:
+    needs: [build-deb, build-rpm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

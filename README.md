@@ -11,6 +11,8 @@ NexoFS monta contas de nuvem (OneDrive, Google Drive) como um sistema de arquivo
 ![Plataforma](https://img.shields.io/badge/plataforma-Linux-informational)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
 
+🌐 **[Site do projeto](https://jerthon.github.io/nexofs/)** · 📦 **[Downloads (.deb/.rpm), separados por versão](site/downloads/)**
+
 ## Funcionalidades
 
 - **Multi-provedor**: OneDrive e Google Drive hoje, arquitetura pronta para novos provedores (`CloudProvider` trait — ver [ADR-006](docs/adr/0006-provider-neutral-core.md)).
@@ -45,6 +47,18 @@ As decisões de design com o *porquê* de cada uma estão documentadas em [`docs
 - [Rust](https://rustup.rs/) (edição 2021) e Cargo.
 - [Node.js](https://nodejs.org/) + npm, apenas para compilar a interface desktop.
 - systemd com sessão de usuário (`systemctl --user`), para rodar o daemon como serviço.
+
+## Instalação via pacote pronto
+
+Pacotes `.deb` (Ubuntu/Debian) e `.rpm` (Fedora/RHEL) do daemon (`nexofsd`) + CLI (`nexofs`), organizados por versão em [`site/downloads/`](site/downloads/) (também publicados em [GitHub Releases](https://github.com/jerthon/nexofs/releases)).
+
+```bash
+# Debian/Ubuntu
+sudo apt install ./site/downloads/0.1.0/nexofs_0.1.0-1_amd64.deb
+
+# Fedora/RHEL
+sudo dnf install ./site/downloads/0.1.0/nexofs-0.1.0-1.fc44.x86_64.rpm
+```
 
 ## Build a partir do código-fonte
 
