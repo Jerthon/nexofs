@@ -9,7 +9,7 @@ Rules-Requires-Root: no
 
 Package: nexofs
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, fuse3
+Depends: ${misc:Depends}, fuse3, libc6, libgcc-s1
 Description: Sistema de arquivos multi-nuvem (FUSE)
  NexoFS monta contas de nuvem como um sistema de
  arquivos FUSE local, com sincronização incremental, cache de conteúdo,

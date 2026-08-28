@@ -15,11 +15,25 @@ override_dh_auto_build:
 override_dh_auto_install:
 	install -Dm755 target/release/nexofsd debian/nexofs/usr/bin/nexofsd
 	install -Dm755 target/release/nexofs debian/nexofs/usr/bin/nexofs
+	install -Dm644 packaging/systemd/nexofsd.service debian/nexofs/usr/lib/systemd/user/nexofsd.service
 
 override_dh_auto_test:
 	# Testes de verdade já rodam em CI/`cargo test --workspace`; o build
 	# do pacote em si não precisa repeti-los.
 
 override_dh_installsystemd:
-	cp packaging/systemd/nexofsd.service debian/nexofsd.service
-	dh_installsystemd --user --no-enable --no-start --name nexofsd
+	# Unidade de usuário (systemd --user), não de sistema — dh_installsystemd
+	# desta versão do debhelper não tem suporte a --user; o arquivo já foi
+	# instalado em override_dh_auto_install, então não há nada a fazer aqui
+	# (mesmo efeito de --no-enable --no-start: sem trigger de ativação automática).
+
+override_dh_strip_nondeterminism:
+	# strip-nondeterminism não existe empacotado no Fedora (só Debian/Ubuntu);
+	# etapa é só para builds reproduzíveis bit-a-bit, não afeta o pacote funcionar.
+
+override_dh_shlibdeps:
+	# dpkg-shlibdeps resolve contra o banco de pacotes dpkg, que não existe
+	# nesta máquina Fedora (libgcc etc. vêm de RPM) — cálculo automático de
+	# ${shlibs:Depends} não é confiável aqui. Depends já fixa libc6/libgcc-s1
+	# manualmente no control; ver nota no changelog sobre validação real
+	# pendente em Ubuntu/KDE Neon.

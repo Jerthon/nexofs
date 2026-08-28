@@ -15,6 +15,16 @@ desktop/src-tauri/target
 # Tauri regenera isso a cada build a partir de tauri.conf.json/capabilities/
 desktop/src-tauri/gen/schemas
 
+# Artefatos de empacotamento
+packaging/deb/dist
+packaging/deb/debian/.cargo-home
+packaging/deb/debian/nexofs
+packaging/deb/debian/nexofs-dbgsym
+packaging/deb/debian/*.debhelper*
+packaging/deb/debian/*.substvars
+packaging/deb/debian/files
+packaging/deb/debian/debhelper-build-stamp
+
 # IDE / SO
 .vscode/
 .idea/
