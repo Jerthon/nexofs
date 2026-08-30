@@ -57,17 +57,14 @@ jobs:
             nodejs npm webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel openssl-devel
 
       - name: Montar árvore de build do rpmbuild
-        # O checkout dentro de `container:` fica num bind-mount que o git
-        # enxerga como um limite de filesystem à parte — sem isto, "git
-        # archive" falha com "not a git repository" mesmo o .git existindo
-        # (a própria mensagem de erro do git aponta esta variável).
-        env:
-          GIT_DISCOVERY_ACROSS_FILESYSTEM: 1
+        # A imagem fedora:40 não tem `git` instalado — o actions/checkout
+        # (rodando dentro do container) cai num fallback que baixa os
+        # arquivos sem criar `.git`, então "git archive" nunca funcionaria
+        # aqui. `tar` direto no diretório já baixado não depende disso.
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           version=$(grep -m1 '^Version:' packaging/rpm/nexofs.spec | awk '{print $2}')
           mkdir -p /tmp/rpmbuild/SOURCES /tmp/rpmbuild/SPECS
-          git archive --prefix="nexofs-${version}/" -o "/tmp/rpmbuild/SOURCES/nexofs-${version}.tar.gz" HEAD
+          tar --exclude=.git --transform "s,^\.,nexofs-${version}," -czf "/tmp/rpmbuild/SOURCES/nexofs-${version}.tar.gz" .
           cp packaging/rpm/nexofs.spec /tmp/rpmbuild/SPECS/
 
       - name: Build do pacote .rpm
