@@ -93,6 +93,17 @@ jobs:
     needs: [build-deb, build-rpm]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A mensagem da tag anotada (`git tag -a vX -m "..."`) vira o corpo
+      # da release — sem isto, `generate_release_notes` sozinho só lista
+      # commits/PRs, sem nenhum resumo do que de fato mudou para quem só
+      # vai instalar o pacote.
+      - name: Extrair a mensagem da tag anotada como notas da release
+        run: git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > /tmp/release-notes.md
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -101,4 +112,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body_path: /tmp/release-notes.md
           generate_release_notes: true
