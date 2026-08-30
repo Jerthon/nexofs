@@ -41,9 +41,18 @@
 
     <div class="card" style="max-width:720px; margin:0 auto 20px;">
       <h3 style="display:flex; align-items:center; gap:10px;">
-        v0.1.0
+        v0.1.1
         <span class="chip" style="padding:3px 10px; font-size:0.75rem;">mais recente</span>
       </h3>
+      <p>Agora inclui a interface gráfica no mesmo pacote (antes era um instalador separado). Corrige também o access token do provedor nunca ser renovado depois do mount inicial, erros permanentes que desapareciam do journal sem avisar o usuário, e upload de arquivo de 0 bytes retornando 411 no OneDrive.</p>
+      <div class="hero-actions" style="justify-content:flex-start; margin-top:16px;">
+        <a class="btn btn-primary" href="0.1.1/nexofs_0.1.1-1_amd64.deb">.deb — Ubuntu/Debian</a>
+        <a class="btn btn-ghost" href="0.1.1/nexofs-0.1.1-1.fc44.x86_64.rpm">.rpm — Fedora/RHEL</a>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:720px; margin:0 auto 20px;">
+      <h3>v0.1.0</h3>
       <p>Primeiro pacote publicado do daemon (<code>nexofsd</code>) e da CLI (<code>nexofs</code>).</p>
       <div class="hero-actions" style="justify-content:flex-start; margin-top:16px;">
         <a class="btn btn-primary" href="0.1.0/nexofs_0.1.0-1_amd64.deb">.deb — Ubuntu/Debian</a>

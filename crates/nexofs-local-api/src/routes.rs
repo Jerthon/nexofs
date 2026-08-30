@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use nexofs_domain::states::{OperationState, OperationType};
 use nexofs_domain::{AccountId, NamespaceId, OperationId};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -399,9 +400,14 @@ async fn get_namespace_items(
 /// isso a tela de conflitos era inútil na prática — usuário não tem como
 /// saber o que resolver). `None` quando o item já não existe mais no índice
 /// (ex: apagado antes do conflito ser resolvido) — não é erro.
-async fn conflict_to_json(namespace_id: &NamespaceId, sync_core: &nexofs_sync_core::SyncCore, c: nexofs_sync_core::ConflictSummary) -> Value {
-    let item_name = sync_core.get_item(c.item_id).await.ok().flatten().map(|item| item.name);
-    let item_path = sync_core.item_relative_path(c.item_id).await.ok().map(|p| p.to_string_lossy().to_string());
+async fn conflict_to_json(
+    namespace_id: &NamespaceId,
+    sync_core: &nexofs_sync_core::SyncCore,
+    c: nexofs_sync_core::ConflictSummary,
+    item_cache: &mut std::collections::HashMap<nexofs_domain::ItemId, nexofs_sync_core::IndexedItem>,
+) -> Value {
+    let item_path = sync_core.item_relative_path_cached(c.item_id, item_cache).await.ok().map(|p| p.to_string_lossy().to_string());
+    let item_name = item_cache.get(&c.item_id).map(|item| item.name.clone());
     json!({
         "conflict_id": c.conflict_id.to_string(),
         "namespace_id": namespace_id.to_string(),
@@ -421,10 +427,14 @@ async fn conflict_to_json(namespace_id: &NamespaceId, sync_core: &nexofs_sync_co
 async fn get_all_conflicts(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     let mut conflicts: Vec<Value> = Vec::new();
     for (namespace_id, sync_core) in state.namespaces_snapshot().await.iter() {
+        // Mesmo cache de `get_operations` (ver `item_relative_path_cached`)
+        // — hoje o volume de conflitos abertos é baixo, mas nada impede
+        // várias colisões sob as mesmas pastas de acontecerem de uma vez.
+        let mut item_cache = std::collections::HashMap::new();
         match sync_core.list_conflicts().await {
             Ok(namespace_conflicts) => {
                 for c in namespace_conflicts {
-                    conflicts.push(conflict_to_json(namespace_id, sync_core, c).await);
+                    conflicts.push(conflict_to_json(namespace_id, sync_core, c, &mut item_cache).await);
                 }
             }
             Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": {"code": "INTERNAL", "message": err.to_string()}}))),
@@ -447,8 +457,9 @@ async fn get_conflicts(State(state): State<AppState>, Path(namespace_id_raw): Pa
     match sync_core.list_conflicts().await {
         Ok(namespace_conflicts) => {
             let mut conflicts: Vec<Value> = Vec::new();
+            let mut item_cache = std::collections::HashMap::new();
             for c in namespace_conflicts {
-                conflicts.push(conflict_to_json(&namespace_id, &sync_core, c).await);
+                conflicts.push(conflict_to_json(&namespace_id, &sync_core, c, &mut item_cache).await);
             }
             (StatusCode::OK, Json(json!({ "conflicts": conflicts })))
         }
@@ -559,9 +570,19 @@ async fn get_metrics(State(state): State<AppState>) -> Json<Value> {
                     _ => "OUTRO",
                 }).or_insert(0) += 1;
             }
+            // T7-04: `FAILED_PERMANENT` não vem de `pending_operations()` (não
+            // é mais "trabalho em andamento"), mas contava aqui como zero
+            // silenciosamente — a própria doc deste endpoint prometia
+            // "visível em /v1/metrics" e não cumpria. Sem isto, um erro real
+            // do provedor (ex.: HTTP 411) que já desistiu de vez some do
+            // journal inteiro, inclusive daqui.
+            let failed_permanent = sync_core.failed_operations().await.map(|ops| ops.len()).unwrap_or(0);
+            if failed_permanent > 0 {
+                by_state.insert("FAILED_PERMANENT", failed_permanent as u64);
+            }
             journal.push(json!({
                 "namespace_id": namespace_id.to_string(),
-                "total": pending.len(),
+                "total": pending.len() + failed_permanent,
                 "by_state": by_state,
             }));
         }
@@ -740,27 +761,127 @@ async fn delete_account(State(state): State<AppState>, Path(account_id_raw): Pat
     }
 }
 
-/// `GET /v1/operations` (SPEC §20.3): operações do journal ainda não
-/// concluídas, agregadas de todos os namespaces montados.
-async fn get_operations(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
+/// Resolve nome/caminho do item envolvido — mesmo motivo de
+/// `conflict_to_json`: sem isto a tela de operações só mostrava tipo/estado,
+/// nunca qual arquivo, e ficava impossível saber qual upload real estava
+/// preso (T7-05). `None` quando o item já não existe mais no índice.
+async fn operation_to_json(
+    namespace_id: &NamespaceId,
+    sync_core: &nexofs_sync_core::SyncCore,
+    op: nexofs_sync_core::QueuedOperation,
+    item_cache: &mut std::collections::HashMap<nexofs_domain::ItemId, nexofs_sync_core::IndexedItem>,
+) -> Value {
+    let (item_name, item_path) = match op.item_id {
+        Some(item_id) => {
+            let path = sync_core.item_relative_path_cached(item_id, item_cache).await.ok().map(|p| p.to_string_lossy().to_string());
+            let name = item_cache.get(&item_id).map(|item| item.name.clone());
+            (name, path)
+        }
+        None => (None, None),
+    };
+    json!({
+        "operation_id": op.operation_id.to_string(),
+        "namespace_id": namespace_id.to_string(),
+        "item_id": op.item_id.map(|id| id.to_string()),
+        "item_name": item_name,
+        "item_path": item_path,
+        "operation_type": format!("{:?}", op.operation_type),
+        "state": format!("{:?}", op.state),
+        "priority": op.priority,
+        "attempt_count": op.attempt_count,
+        "last_error_message": op.last_error_message,
+        "updated_at": op.updated_at,
+    })
+}
+
+fn parse_operation_state(raw: &str) -> Option<OperationState> {
+    Some(match raw {
+        "Pending" => OperationState::Pending,
+        "WaitingRetry" => OperationState::WaitingRetry,
+        "WaitingNetwork" => OperationState::WaitingNetwork,
+        "WaitingAuthentication" => OperationState::WaitingAuthentication,
+        "FailedPermanent" => OperationState::FailedPermanent,
+        _ => return None,
+    })
+}
+
+fn parse_operation_type(raw: &str) -> Option<OperationType> {
+    Some(match raw {
+        "UploadFile" => OperationType::UploadFile,
+        "CreateDirectory" => OperationType::CreateDirectory,
+        "MoveItem" => OperationType::MoveItem,
+        "RenameItem" => OperationType::RenameItem,
+        "DeleteItem" => OperationType::DeleteItem,
+        "RestoreItem" => OperationType::RestoreItem,
+        "HydrateItem" => OperationType::HydrateItem,
+        "PinTree" => OperationType::PinTree,
+        "RefreshChanges" => OperationType::RefreshChanges,
+        "ReconcileNamespace" => OperationType::ReconcileNamespace,
+        _ => return None,
+    })
+}
+
+/// Página pedida por padrão quando `limit` não vem na query — grande o
+/// bastante para preencher a tela sem paginar toda hora, pequena o
+/// bastante para nunca reintroduzir o travamento de T7-05.
+const DEFAULT_OPERATIONS_PAGE_SIZE: u32 = 50;
+
+#[derive(serde::Deserialize)]
+struct OperationsQuery {
+    limit: Option<u32>,
+    offset: Option<u32>,
+    /// Mesmos valores de `state` no JSON de resposta (`Pending`,
+    /// `WaitingRetry`, ...) — um valor desconhecido é tratado como "sem
+    /// filtro" em vez de erro 400, para nunca quebrar a UI por um typo.
+    state: Option<String>,
+    /// Idem, mesmos valores de `operation_type` na resposta.
+    operation_type: Option<String>,
+    /// Substring do nome do arquivo/pasta (não do caminho completo).
+    search: Option<String>,
+}
+
+/// `GET /v1/operations?limit=&offset=&state=&operation_type=&search=`
+/// (SPEC §20.3, T7-06): página das operações do journal ainda não
+/// concluídas, agregadas de todos os namespaces montados — mais as que já
+/// falharam de vez (`FailedPermanent`, sempre primeiro na página, T7-04).
+/// Toda operação carrega `last_error_message`, quando existe, para que a
+/// causa não dependa de olhar o log — ex.: `HTTP 411 Length Required`
+/// visto em produção. Paginado (T7-06): uma conta com milhares de
+/// operações pendentes espalhadas por muitas pastas fazia o endpoint
+/// nunca responder mesmo já com cache de caminho — resolver nome/caminho
+/// (o que é caro) agora só acontece para a página pedida; `total`/
+/// `total_failed` vêm de `COUNT(*)` (barato) e continuam batendo mesmo com
+/// a página truncada.
+async fn get_operations(State(state): State<AppState>, Query(query): Query<OperationsQuery>) -> (StatusCode, Json<Value>) {
+    let filter = nexofs_sync_core::OperationsFilter {
+        state: query.state.as_deref().and_then(parse_operation_state),
+        operation_type: query.operation_type.as_deref().and_then(parse_operation_type),
+        search: query.search,
+    };
+    let limit = query.limit.unwrap_or(DEFAULT_OPERATIONS_PAGE_SIZE);
+    let offset = query.offset.unwrap_or(0);
+
     let mut operations: Vec<Value> = Vec::new();
+    let mut total: u64 = 0;
+    let mut total_failed: u64 = 0;
     for (namespace_id, sync_core) in state.namespaces_snapshot().await.iter() {
-        match sync_core.pending_operations().await {
-            Ok(pending) => operations.extend(pending.into_iter().map(|op| {
-                json!({
-                    "operation_id": op.operation_id.to_string(),
-                    "namespace_id": namespace_id.to_string(),
-                    "item_id": op.item_id.map(|id| id.to_string()),
-                    "operation_type": format!("{:?}", op.operation_type),
-                    "state": format!("{:?}", op.state),
-                    "priority": op.priority,
-                    "attempt_count": op.attempt_count,
-                })
-            })),
+        let page = match sync_core.list_operations_page(filter.clone(), limit, offset).await {
+            Ok(page) => page,
             Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": {"code": "INTERNAL", "message": err.to_string()}}))),
+        };
+        total += page.total;
+        total_failed += page.total_failed;
+
+        // Um único cache de itens por namespace/página — ver
+        // `item_relative_path_cached`. Como a página já vem limitada
+        // (`DEFAULT_OPERATIONS_PAGE_SIZE`/`limit`), isto nunca mais escala
+        // com o tamanho total da fila.
+        let mut item_cache = std::collections::HashMap::new();
+        for op in page.operations {
+            operations.push(operation_to_json(namespace_id, sync_core, op, &mut item_cache).await);
         }
     }
-    (StatusCode::OK, Json(json!({ "operations": operations })))
+    (StatusCode::OK, Json(json!({ "operations": operations, "total": total, "total_failed": total_failed })))
 }
 
 fn parse_operation_id(raw: &str) -> Result<OperationId, (StatusCode, Json<Value>)> {

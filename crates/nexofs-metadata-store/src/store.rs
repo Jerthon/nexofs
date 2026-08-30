@@ -11,8 +11,20 @@ use crate::{migrations, pragmas};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc as std_mpsc;
+use std::sync::Arc;
 
 type WriteJob = Box<dyn FnOnce(&mut Connection) + Send + 'static>;
+
+/// Teto de conexões de leitura abertas ao mesmo tempo. Sem isto, uma rajada
+/// de operações do journal (ex.: reprocessando centenas de pendências de
+/// uma vez após um restart) abre uma conexão física por `read()`
+/// concorrente sem limite algum — bug real de produção: o processo bateu
+/// no limite de file descriptors do sistema (`ulimit -n`), e a partir daí
+/// tanto novas leituras (`CannotOpen`) quanto o próprio servidor HTTP local
+/// (`accept error: Too many open files`) pararam de funcionar. WAL permite
+/// bastante leitura concorrente sem contenção real — este número é só uma
+/// rédea de segurança, não uma otimização de performance.
+const MAX_CONCURRENT_READS: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -25,6 +37,7 @@ pub enum StoreError {
 pub struct MetadataStore {
     db_path: PathBuf,
     write_tx: std_mpsc::Sender<WriteJob>,
+    read_permits: Arc<tokio::sync::Semaphore>,
     // Mantém a thread viva pelo tempo de vida do store; join só ocorre no Drop.
     _writer_thread: std::thread::JoinHandle<()>,
 }
@@ -74,6 +87,7 @@ impl MetadataStore {
         Ok(Self {
             db_path,
             write_tx,
+            read_permits: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_READS)),
             _writer_thread: writer_thread,
         })
     }
@@ -108,8 +122,14 @@ impl MetadataStore {
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
         T: Send + 'static,
     {
+        // `acquire_owned` só falha se o semáforo for fechado, o que nunca
+        // acontece aqui (nada chama `close()`) — sem isso, uma rajada de
+        // leituras concorrentes abriria uma conexão física cada uma, sem
+        // limite (ver `MAX_CONCURRENT_READS`).
+        let permit = self.read_permits.clone().acquire_owned().await.expect("semáforo de leitura nunca é fechado");
         let db_path = self.db_path.clone();
         tokio::task::spawn_blocking(move || {
+            let _permit = permit;
             let conn = open_connection(&db_path)?;
             f(&conn)
         })

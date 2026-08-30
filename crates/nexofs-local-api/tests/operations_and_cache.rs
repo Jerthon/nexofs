@@ -214,6 +214,10 @@ async fn a_waiting_network_operation_can_be_listed_and_retried_over_the_api() {
     let (status, body) = http_request(&socket_path, &get("/v1/operations")).await;
     assert_eq!(status, 200, "corpo: {body}");
     assert!(body.contains("WAITING_NETWORK") || body.contains("WaitingNetwork"), "corpo: {body}");
+    // T7-05: a tela de operações só mostrava tipo/estado, nunca qual
+    // arquivo — sem `item_name`/`item_path` no JSON não dá pra identificar
+    // qual upload está preso.
+    assert!(body.contains("\"item_name\":\"arquivo.txt\""), "corpo precisa identificar o arquivo: {body}");
 
     let operation_id = sync_core.pending_operations().await.unwrap()[0].operation_id;
     let (status, body) = http_request(&socket_path, &post(&format!("/v1/operations/{operation_id}/retry"))).await;
@@ -221,6 +225,99 @@ async fn a_waiting_network_operation_can_be_listed_and_retried_over_the_api() {
 
     let pending = sync_core.pending_operations().await.unwrap();
     assert_eq!(pending[0].state, nexofs_domain::states::OperationState::Pending, "retry deve destravar a operação para o próximo despacho imediatamente");
+}
+
+/// T7-04 — bug real de produção: um erro permanente do provedor (visto ao
+/// vivo como `HTTP 411 Length Required` em dois uploads reais) fazia a
+/// operação sair de `pending_operations()` para sempre e sumir de
+/// `GET /v1/operations` — a única pista que sobrava era uma linha de log do
+/// daemon. O usuário via o arquivo como "ainda sincronizando" sem nenhum
+/// jeito de saber, pela API/CLI, que aquele upload específico já tinha
+/// desistido de vez. `GET /v1/operations` agora inclui `FailedPermanent`
+/// junto com o resto, com a mensagem do erro anexada — e `operation-retry`
+/// continua funcionando para tentar de novo manualmente.
+#[tokio::test]
+async fn a_permanently_failed_operation_stays_visible_over_the_api_with_its_error_message() {
+    let (namespace_id, sync_core, provider, root) = build_sync_core().await;
+    let item_id = sync_core.create_local_item(root, "arquivo.txt", ItemKind::File).await.unwrap();
+    sync_core.begin_write(item_id).await.unwrap();
+    sync_core.stabilize_upload(item_id).await.unwrap();
+
+    provider.queue_failure(nexofs_provider_api::ProviderErrorKind::InvalidName);
+    sync_core.dispatch_pending_operations().await.unwrap();
+
+    // Pré-condição: o bug real era exatamente isto — some de `pending_operations()`.
+    assert!(
+        sync_core.pending_operations().await.unwrap().is_empty(),
+        "uma falha permanente não é mais 'trabalho em andamento' — não deveria mesmo aparecer aqui"
+    );
+
+    let mut namespaces = HashMap::new();
+    namespaces.insert(namespace_id, sync_core.clone());
+    let state = AppState::new(namespaces, Vec::new(), Vec::new(), Arc::new(ProviderApiGovernor::new()), Arc::new(EventBus::new()), 1024, std::env::temp_dir());
+    let socket_path = serve_and_get_socket(state).await;
+
+    let (status, body) = http_request(&socket_path, &get("/v1/operations")).await;
+    assert_eq!(status, 200, "corpo: {body}");
+    assert!(body.contains("FAILED_PERMANENT") || body.contains("FailedPermanent"), "operação permanentemente falha precisa continuar visível: {body}");
+    assert!(body.contains("falha injetada"), "a mensagem do erro real precisa estar no corpo, não só no log do daemon: {body}");
+
+    // `operation-retry` já suportava `FAILED_PERMANENT` — continua funcionando.
+    let operation_id = sync_core.failed_operations().await.unwrap()[0].operation_id;
+    let (status, body) = http_request(&socket_path, &post(&format!("/v1/operations/{operation_id}/retry"))).await;
+    assert_eq!(status, 200, "corpo: {body}");
+    assert!(sync_core.failed_operations().await.unwrap().is_empty(), "depois do retry manual não deve mais aparecer como falha permanente");
+}
+
+/// T7-06 — real: uma conta com milhares de operações pendentes deixava
+/// `GET /v1/operations` inutilizável (a tela ficava vazia depois de trocar
+/// de aba, o "1 falhou" era impossível de achar no meio de 6000). A
+/// resposta agora é paginada (`limit`/`offset`) e filtrável
+/// (`state`/`operation_type`/`search`), com `total`/`total_failed`
+/// batendo mesmo com a página truncada.
+#[tokio::test]
+async fn operations_can_be_filtered_by_search_and_state_with_accurate_totals() {
+    let (namespace_id, sync_core, provider, root) = build_sync_core().await;
+    for name in ["relatorio.docx", "foto.png", "notas.txt"] {
+        let item_id = sync_core.create_local_item(root, name, ItemKind::File).await.unwrap();
+        sync_core.begin_write(item_id).await.unwrap();
+        sync_core.stabilize_upload(item_id).await.unwrap();
+    }
+
+    // Despacho em ordem de criação (relatorio.docx, foto.png, notas.txt) —
+    // fila de falhas alinhada para que só "foto.png" falhe de vez; as
+    // outras duas levam uma falha transitória de rede (ficam em
+    // `WAITING_NETWORK`, continuam "ativas" em vez de completar de
+    // verdade, o que as tiraria do filtro).
+    provider.queue_network_failures(1);
+    provider.queue_failure(nexofs_provider_api::ProviderErrorKind::InvalidName);
+    provider.queue_network_failures(1);
+    sync_core.dispatch_pending_operations().await.unwrap();
+
+    let mut namespaces = HashMap::new();
+    namespaces.insert(namespace_id, sync_core.clone());
+    let state = AppState::new(namespaces, Vec::new(), Vec::new(), Arc::new(ProviderApiGovernor::new()), Arc::new(EventBus::new()), 1024, std::env::temp_dir());
+    let socket_path = serve_and_get_socket(state).await;
+
+    // Busca por texto: só "foto.png" bate, mesmo com as outras duas na fila.
+    let (status, body) = http_request(&socket_path, &get("/v1/operations?search=foto")).await;
+    assert_eq!(status, 200, "corpo: {body}");
+    assert!(body.contains("foto.png"), "corpo: {body}");
+    assert!(!body.contains("relatorio.docx") && !body.contains("notas.txt"), "busca por texto não deveria trazer os outros arquivos: {body}");
+    assert!(body.contains("\"total\":1"), "total sob o filtro de busca deveria ser 1: {body}");
+
+    // Filtro por estado: só a que falhou de vez.
+    let (status, body) = http_request(&socket_path, &get("/v1/operations?state=FailedPermanent")).await;
+    assert_eq!(status, 200, "corpo: {body}");
+    assert!(body.contains("foto.png"), "corpo: {body}");
+    assert!(!body.contains("relatorio.docx") && !body.contains("notas.txt"), "filtro de estado não deveria trazer as pendentes: {body}");
+
+    // Paginação: `total`/`total_failed` continuam contando tudo mesmo com
+    // a página (`limit=1`) truncada.
+    let (status, body) = http_request(&socket_path, &get("/v1/operations?limit=1")).await;
+    assert_eq!(status, 200, "corpo: {body}");
+    assert!(body.contains("\"total\":3"), "total sem filtro deveria contar as 3 operações: {body}");
+    assert!(body.contains("\"total_failed\":1"), "total_failed deveria contar a que falhou, mesmo fora da página: {body}");
 }
 
 #[tokio::test]

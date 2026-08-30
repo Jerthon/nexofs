@@ -230,17 +230,17 @@
     <div class="section-head">
       <div class="eyebrow">Instalação</div>
       <h2>Pacote pronto ou a partir do código-fonte</h2>
-      <p>Instaladores <code>.deb</code> e <code>.rpm</code> do daemon + CLI, organizados por versão.</p>
+      <p>Instaladores <code>.deb</code> e <code>.rpm</code> com tudo num único pacote — daemon, CLI e interface gráfica —, organizados por versão.</p>
     </div>
 
     <div class="hero-actions" style="margin-bottom:20px;">
-      <a class="btn btn-primary" href="downloads/0.1.0/nexofs_0.1.0-1_amd64.deb">
+      <a class="btn btn-primary" href="downloads/0.1.1/nexofs_0.1.1-1_amd64.deb">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-        Baixar .deb (v0.1.0)
+        Baixar .deb (v0.1.1)
       </a>
-      <a class="btn btn-primary" href="downloads/0.1.0/nexofs-0.1.0-1.fc44.x86_64.rpm">
+      <a class="btn btn-primary" href="downloads/0.1.1/nexofs-0.1.1-1.fc44.x86_64.rpm">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-        Baixar .rpm (v0.1.0)
+        Baixar .rpm (v0.1.1)
       </a>
     </div>
     <div class="hero-note" style="margin-bottom:56px;">
@@ -249,20 +249,24 @@
     </div>
 
     <div class="install-tabs" role="tablist">
-      <button class="tab-btn" role="tab" aria-selected="true" data-tab="daemon">Daemon + CLI</button>
-      <button class="tab-btn" role="tab" aria-selected="false" data-tab="desktop">Interface desktop</button>
+      <button class="tab-btn" role="tab" aria-selected="true" data-tab="daemon">Pacote completo</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-tab="desktop">Só compilar (dev)</button>
       <button class="tab-btn" role="tab" aria-selected="false" data-tab="gdrive">Google Drive</button>
     </div>
 
     <div class="tab-panel active" data-panel="daemon">
-      <pre class="code-block"><span class="cmt"># requer Linux + FUSE 3, Rust (edição 2021) e Cargo</span>
-cargo build --release -p nexofsd -p nexofs-cli</pre>
+      <pre class="code-block"><span class="cmt"># .deb/.rpm com daemon + CLI + interface gráfica no mesmo pacote —</span>
+<span class="cmt"># receitas em packaging/deb (debian/rules) e packaging/rpm (nexofs.spec)</span>
+sudo apt install ./nexofs_&lt;versão&gt;_amd64.deb
+sudo dnf install ./nexofs-&lt;versão&gt;.x86_64.rpm</pre>
     </div>
     <div class="tab-panel" data-panel="desktop">
-      <pre class="code-block"><span class="cmt"># gera .deb e .rpm em desktop/src-tauri/target/release/bundle/</span>
+      <pre class="code-block"><span class="cmt"># compilar sem empacotar — útil pra desenvolver</span>
+cargo build --release -p nexofsd -p nexofs-cli
+
 cd desktop
 npm install
-cargo tauri build</pre>
+cargo tauri dev</pre>
     </div>
     <div class="tab-panel" data-panel="gdrive">
       <pre class="code-block"><span class="cmt"># credenciais do app, não do usuário — ver ADR-015</span>

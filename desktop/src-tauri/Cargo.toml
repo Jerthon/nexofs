@@ -9,7 +9,7 @@
 
 [package]
 name = "nexofs-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
@@ -17,6 +17,13 @@ publish = false
 [lib]
 name = "nexofs_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# Sem isso, um binário compilado com `cargo build` puro (sem passar pela
+# CLI `cargo tauri build`, que ativa essa feature implicitamente) carrega
+# o servidor de dev do Vite (devUrl) em vez dos assets embutidos — e falha
+# em produção com "Could not connect to localhost: Connection refused".
+custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

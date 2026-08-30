@@ -11,11 +11,25 @@ export CARGO_HOME = $(CURDIR)/debian/.cargo-home
 
 override_dh_auto_build:
 	cargo build --release --locked -p nexofsd -p nexofs-cli
+	# T7-06: interface desktop no mesmo pacote (usuário pediu "tudo num único
+	# instalador" em vez dos dois pacotes separados — nexofs + NexoFS —
+	# que `cargo tauri build` gera por padrão, o segundo dependendo do
+	# primeiro). `cargo build` direto no crate do Tauri funciona sozinho,
+	# sem precisar da CLI `cargo-tauri`, desde que o `dist/` do frontend já
+	# exista — só o `npm run build` (vite) é obrigatório antes.
+	cd desktop && npm ci && npm run build
+	cargo build --release --locked --features custom-protocol --manifest-path desktop/src-tauri/Cargo.toml
 
 override_dh_auto_install:
 	install -Dm755 target/release/nexofsd debian/nexofs/usr/bin/nexofsd
 	install -Dm755 target/release/nexofs debian/nexofs/usr/bin/nexofs
 	install -Dm644 packaging/systemd/nexofsd.service debian/nexofs/usr/lib/systemd/user/nexofsd.service
+	install -Dm755 desktop/src-tauri/target/release/nexofs-desktop debian/nexofs/usr/bin/nexofs-desktop
+	install -Dm644 packaging/desktop/NexoFS.desktop debian/nexofs/usr/share/applications/NexoFS.desktop
+	install -Dm644 desktop/src-tauri/icons/32x32.png debian/nexofs/usr/share/icons/hicolor/32x32/apps/nexofs-desktop.png
+	install -Dm644 desktop/src-tauri/icons/128x128.png debian/nexofs/usr/share/icons/hicolor/128x128/apps/nexofs-desktop.png
+	install -Dm644 desktop/src-tauri/icons/128x128@2x.png debian/nexofs/usr/share/icons/hicolor/256x256@2/apps/nexofs-desktop.png
+	install -Dm644 desktop/src-tauri/icons/icon.png debian/nexofs/usr/share/icons/hicolor/512x512/apps/nexofs-desktop.png
 
 override_dh_auto_test:
 	# Testes de verdade já rodam em CI/`cargo test --workspace`; o build

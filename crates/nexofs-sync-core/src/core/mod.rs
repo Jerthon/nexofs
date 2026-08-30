@@ -13,6 +13,7 @@ mod dispatch;
 pub use diagnostics::NamespaceDiagnostics;
 mod ignore;
 mod journal;
+pub use journal::{OperationsFilter, OperationsPage};
 mod pin;
 mod storm;
 mod write;
@@ -28,7 +29,7 @@ use nexofs_domain::{AccountId, ItemId, NamespaceId, ProviderId, RemoteItemId};
 use nexofs_metadata_store::MetadataStore;
 use nexofs_provider_api::{
     ChangeCursor, CloudProvider, CreateCursorRequest, DownloadRequest, ItemKind,
-    ListChangesRequest, ListChildrenRequest, RemoteChange, RemoteItem,
+    ListChangesRequest, ListChildrenRequest, RemoteChange, RemoteItem, SecretToken,
 };
 use rusqlite::{params, OptionalExtension};
 use std::collections::HashMap;
@@ -73,6 +74,24 @@ pub struct SyncCore {
     // que uma regra é adicionada/removida.
     ignore_engine_cache: tokio::sync::RwLock<Option<Arc<nexofs_ignore::IgnoreEngine>>>,
     account_ctx: RwLock<nexofs_provider_api::ProviderAccountContext>,
+    // T7-03: o access token embutido em `account_ctx` expira (~1h nos
+    // provedores reais) e nada mais o renovava depois do mount inicial —
+    // toda chamada ao provedor passava a falhar com `AuthenticationRequired`
+    // pelo resto da vida do processo, empilhando o journal inteiro em
+    // `WaitingRetry`/`FailedPermanent` até um restart manual do daemon.
+    // Guardado aqui (não só em `nexofsd::bootstrap`) para que
+    // `dispatch::handle_provider_error` possa renovar a sessão sozinho
+    // quando encontra esse erro. `None` para quem constrói via `new()` sem
+    // chamar `with_refresh_token` (todo teste com `FakeProvider`, cujo
+    // access token nunca expira) — nesse caso a renovação simplesmente
+    // falha e a operação segue o caminho de falha permanente de antes.
+    // `token_refresh_lock` serializa tentativas concorrentes — sem isso,
+    // uma rajada de operações vencidas ao mesmo tempo (ex.: depois de o
+    // sistema ficar suspenso por horas) dispararia um refresh HTTP por
+    // operação, o que já observamos derrubar o próprio endpoint de token
+    // com "Too Many Pending Requests".
+    refresh_token: RwLock<Option<SecretToken>>,
+    token_refresh_lock: tokio::sync::Mutex<()>,
     ctx: SyncCoreContext,
     root_item_id: OnceCell<ItemId>,
     loading_locks: PerKeyLock<ItemId>,
@@ -134,6 +153,8 @@ impl SyncCore {
             overlay,
             ignore_engine_cache: tokio::sync::RwLock::new(None),
             account_ctx: RwLock::new(account_ctx),
+            refresh_token: RwLock::new(None),
+            token_refresh_lock: tokio::sync::Mutex::new(()),
             ctx,
             root_item_id: OnceCell::new(),
             loading_locks: PerKeyLock::new(),
@@ -155,6 +176,15 @@ impl SyncCore {
     /// antigo, se algum, perderiam eventos publicados após a troca).
     pub fn with_event_bus(mut self, event_bus: Arc<crate::events::EventBus>) -> Self {
         self.event_bus = event_bus;
+        self
+    }
+
+    /// T7-03: habilita a renovação automática do access token expirado —
+    /// `nexofsd` chama isto com o mesmo refresh token que carregou do
+    /// keyring em `bootstrap::try_refresh_session`. Sem isto,
+    /// `dispatch::try_refresh_access_token` não tem como renovar nada.
+    pub fn with_refresh_token(mut self, refresh_token: SecretToken) -> Self {
+        *self.refresh_token.get_mut() = Some(refresh_token);
         self
     }
 

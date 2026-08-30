@@ -287,6 +287,84 @@ button:disabled {
   color: var(--danger);
 }
 
+/* T7-05: coluna "Arquivo" (Conflitos/Operações) não pode empurrar as outras
+   colunas pra fora só porque um caminho é comprido e sem espaços — o
+   `display: inline-block` + `max-width` faz a tabela calcular a largura da
+   coluna a partir da caixa já limitada, não do texto inteiro (table-layout
+   continua "auto", então as outras colunas não são afetadas). */
+.col-file {
+  display: inline-block;
+  max-width: 22rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  vertical-align: middle;
+}
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.stat-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.stat-chip strong {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.stat-chip.stat-chip-danger {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.stat-chip.stat-chip-danger strong {
+  color: var(--danger);
+}
+
+.stat-chip-clickable {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.stat-chip-clickable:hover {
+  background: color-mix(in srgb, var(--danger) 26%, transparent);
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.filter-row input[type="search"] {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .badge-pin-pinned {
   background: color-mix(in srgb, var(--primary) 18%, transparent);
   color: var(--primary);

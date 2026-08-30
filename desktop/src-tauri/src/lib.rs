@@ -28,6 +28,21 @@ fn to_command_error(err: anyhow::Error) -> String {
     err.to_string()
 }
 
+/// Percent-encoding mínimo (RFC 3986, conjunto "unreserved") para um valor
+/// de query string — só o `search` de `get_operations` precisa disto (texto
+/// livre digitado pelo usuário, pode conter `&`, `%`, espaço, etc.); os
+/// demais parâmetros são enums/números que este mesmo código controla.
+fn encode_query_param(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 #[tauri::command]
 async fn get_status(state: tauri::State<'_, AppState>) -> Result<Value, String> {
     state.client.get("/v1/status").await.map_err(to_command_error)
@@ -83,8 +98,32 @@ async fn set_pin_state(state: tauri::State<'_, AppState>, namespace_id: String, 
 }
 
 #[tauri::command]
-async fn get_operations(state: tauri::State<'_, AppState>) -> Result<Value, String> {
-    state.client.get("/v1/operations").await.map_err(to_command_error)
+async fn get_operations(
+    state: tauri::State<'_, AppState>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    operation_state: Option<String>,
+    operation_type: Option<String>,
+    search: Option<String>,
+) -> Result<Value, String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(limit) = limit {
+        parts.push(format!("limit={limit}"));
+    }
+    if let Some(offset) = offset {
+        parts.push(format!("offset={offset}"));
+    }
+    if let Some(s) = operation_state.filter(|s| !s.is_empty()) {
+        parts.push(format!("state={s}"));
+    }
+    if let Some(t) = operation_type.filter(|s| !s.is_empty()) {
+        parts.push(format!("operation_type={t}"));
+    }
+    if let Some(q) = search.filter(|s| !s.is_empty()) {
+        parts.push(format!("search={}", encode_query_param(&q)));
+    }
+    let query = if parts.is_empty() { String::new() } else { format!("?{}", parts.join("&")) };
+    state.client.get(&format!("/v1/operations{query}")).await.map_err(to_command_error)
 }
 
 #[tauri::command]

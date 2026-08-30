@@ -117,6 +117,7 @@ impl SyncCore {
             ConflictType::ContentChangedBothSides => self.resolve_content_changed_both_sides(item_id, resolution).await?,
             ConflictType::RemoteDeletedLocalModified => self.resolve_remote_deleted_local_modified(item_id, resolution).await?,
             ConflictType::LocalDeletedRemoteModified => self.resolve_local_deleted_remote_modified(item_id, resolution).await?,
+            ConflictType::LocalOnlyRemoteCollision => self.resolve_local_only_remote_collision(item_id, resolution).await?,
             _ => return Err(SyncError::InvalidOperation("resolução ainda não implementada para este tipo de conflito")),
         }
 
@@ -351,5 +352,81 @@ impl SyncCore {
             }
             ConflictResolution::DismissTemporarily => unreachable!("tratado em resolve_conflict antes de chegar aqui"),
         }
+    }
+
+    /// `LocalOnlyRemoteCollision` (detectada em `upsert_item`, `core/mod.rs`):
+    /// um item criado localmente ainda não enviado (`remote_item_id IS
+    /// NULL`) ocupa o mesmo `(pasta, nome)` que um item remoto recém-visto.
+    /// O item remoto em si nunca chegou a ser indexado — `upsert_item`
+    /// pulou-o inteiro ao detectar a colisão — então não há uma "cópia
+    /// remota" para comparar ou mesclar aqui, diferente dos outros tipos de
+    /// conflito.
+    async fn resolve_local_only_remote_collision(&self, item_id: ItemId, resolution: ConflictResolution) -> Result<(), SyncError> {
+        match resolution {
+            // "Remoto vence": descarta o item local que nunca foi enviado —
+            // a próxima relistagem da pasta pai insere o item remoto
+            // normalmente, sem mais nada disputando o nome.
+            ConflictResolution::KeepRemote => self.hard_delete_item(item_id).await,
+            // "Local vence"/"manter os dois": como o remoto nem chegou a
+            // ser indexado, não existe operação de rename remoto a fazer —
+            // basta tirar o item local do nome disputado (mesmo padrão de
+            // `generate_keep_both_name` usado em
+            // `split_dirty_content_into_new_sibling`). O nome original fica
+            // livre para a próxima relistagem adotar o item remoto.
+            ConflictResolution::KeepLocal | ConflictResolution::KeepBoth | ConflictResolution::SaveLocalElsewhere => {
+                self.rename_local_only_item_out_of_the_way(item_id).await
+            }
+            ConflictResolution::DismissTemporarily => unreachable!("tratado em resolve_conflict antes de chegar aqui"),
+        }
+    }
+
+    async fn rename_local_only_item_out_of_the_way(&self, item_id: ItemId) -> Result<(), SyncError> {
+        let item = self.get_item(item_id).await?.ok_or(SyncError::NotFound)?;
+        let Some(parent_item_id) = item.parent_item_id else {
+            return Err(SyncError::InvalidOperation("item sem pai não pode ser renomeado para sair do caminho"));
+        };
+
+        let siblings = self.list_children(parent_item_id).await?;
+        let existing_names: std::collections::HashSet<String> = siblings.iter().map(|s| s.name.clone()).collect();
+        let new_name = generate_keep_both_name(&item.name, chrono::Utc::now(), &existing_names);
+        let normalized = new_name.to_lowercase();
+
+        let item_id_s = item_id.to_string();
+        let now = now_unix();
+        self.store
+            .write(move |tx| {
+                tx.execute(
+                    "UPDATE items SET name = ?1, normalized_name = ?2, updated_at = ?3 WHERE item_id = ?4",
+                    params![new_name, normalized, now, item_id_s],
+                )
+            })
+            .await?;
+
+        // `record_conflict` sobrescreveu `local_states.sync_state` para
+        // `CONFLICT` incondicionalmente — restaura o estado real do item
+        // (a mesma distinção `LOCAL_ONLY` vs. conteúdo pendente de
+        // `create_local_item`) antes de deixar o dispatcher retomar a
+        // operação pendente, agora sob o nome novo.
+        if item.sync_state.as_deref() == Some("CONFLICT") {
+            let restored_state = if item.source_layer == "LOCAL_ONLY" { "LOCAL_ONLY" } else { "DIRTY" };
+            let item_id_s = item_id.to_string();
+            let now = now_unix();
+            self.store
+                .write(move |tx| {
+                    tx.execute(
+                        "UPDATE local_states SET sync_state = ?1, error_message = NULL, updated_at = ?2 WHERE item_id = ?3",
+                        params![restored_state, now, item_id_s],
+                    )
+                })
+                .await?;
+        }
+
+        // Sem efeito se o item não estiver `Dirty` (diretórios e itens
+        // `LOCAL_ONLY` caem no early-return de `stabilize_upload`) — a
+        // `CreateDirectory` já enfileirada por `create_local_item` lê
+        // `item.name` direto de `items` no momento do dispatch
+        // (`dispatch_create_directory`), então o rename acima já basta
+        // para ela também.
+        self.stabilize_upload(item_id).await
     }
 }

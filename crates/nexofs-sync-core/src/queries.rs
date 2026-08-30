@@ -18,7 +18,7 @@ pub(crate) fn parse_operation_id(s: &str) -> OperationId {
 }
 
 pub(crate) const OPERATION_COLUMNS: &str =
-    "operation_id, item_id, operation_type, state, priority, idempotency_key, attempt_count, base_remote_version";
+    "operation_id, item_id, operation_type, state, priority, idempotency_key, attempt_count, base_remote_version, last_error_message, updated_at";
 
 pub(crate) fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<QueuedOperation> {
     let operation_id: String = row.get(0)?;
@@ -29,6 +29,8 @@ pub(crate) fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<QueuedOperatio
     let idempotency_key: String = row.get(5)?;
     let attempt_count: i64 = row.get(6)?;
     let base_remote_version: Option<String> = row.get(7)?;
+    let last_error_message: Option<String> = row.get(8)?;
+    let updated_at: i64 = row.get(9)?;
 
     Ok(QueuedOperation {
         operation_id: parse_operation_id(&operation_id),
@@ -39,6 +41,8 @@ pub(crate) fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<QueuedOperatio
         attempt_count: attempt_count.max(0) as u32,
         idempotency_key,
         base_remote_version,
+        last_error_message,
+        updated_at,
     })
 }
 

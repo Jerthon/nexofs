@@ -39,6 +39,14 @@ impl SyncCore {
         for op in &pending {
             *pending_operations_by_state.entry(operation_state_label(op.state)).or_insert(0) += 1;
         }
+        // T7-04: `FAILED_PERMANENT` nunca aparece em `pending_operations()`
+        // (deixou de ser "trabalho em andamento"), então sem isto o próprio
+        // diagnóstico — pensado para revelar exatamente este tipo de coisa —
+        // ficava cego para operações que já desistiram de vez.
+        let failed = self.failed_operations().await?;
+        if !failed.is_empty() {
+            pending_operations_by_state.insert("FAILED_PERMANENT", failed.len() as u64);
+        }
 
         let open_conflicts = self.list_conflicts().await?.len() as u64;
         let cache_stats = self.cache_stats().await?;

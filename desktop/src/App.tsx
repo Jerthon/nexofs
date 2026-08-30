@@ -28,7 +28,14 @@ import logoDark from "./assets/logo-dark.png";
  * antes do `nexofsd` estar de pé" quanto "o daemon caiu e voltou", nenhum
  * dos dois casos tem um `SyncEvent` específico para reagir. Sem isso, uma
  * seção que erra na carga inicial ficava presa nesse erro para sempre. */
-function useApiList<T>(fetcher: () => Promise<T>, refetchOn: string[]) {
+/** `active = false` pausa tanto a releitura por evento quanto o "recarregar
+ * ao montar" (T7-06) — usado por telas mantidas montadas (escondidas via
+ * CSS, não desmontadas) ao trocar de aba, tipo `SyncLog`, para que trocar
+ * de aba e voltar não fique refazendo a chamada nem piscando "carregando"
+ * com dados que já tínhamos; ao reativar, recarrega uma vez para atualizar
+ * com o que aconteceu enquanto a aba estava escondida. Componentes que não
+ * passam `active` continuam sempre ativos (comportamento de antes). */
+function useApiList<T>(fetcher: () => Promise<T>, refetchOn: string[], active: boolean = true) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,11 +52,17 @@ function useApiList<T>(fetcher: () => Promise<T>, refetchOn: string[]) {
   }, [fetcher]);
 
   useEffect(() => {
-    setLoading(true);
+    if (!active) return;
+    // Só mostra o spinner de "carregando" quando ainda não há nada — ao
+    // reativar uma aba já visitada, atualiza em segundo plano sem apagar
+    // o que já estava na tela.
+    setLoading((wasLoading) => (data === null ? true : wasLoading));
     reload();
-  }, [reload]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reload, active]);
 
   useEffect(() => {
+    if (!active) return;
     const unlistenEvent = listen<{ type: string }>("nexofs://event", (event) => {
       if (refetchOn.includes(event.payload.type)) reload();
     });
@@ -59,7 +72,7 @@ function useApiList<T>(fetcher: () => Promise<T>, refetchOn: string[]) {
       unlistenConnected.then((stop) => stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reload, refetchOn.join(",")]);
+  }, [reload, refetchOn.join(","), active]);
 
   return { data, error, loading, reload };
 }
@@ -433,18 +446,138 @@ function AccountsAndNamespaces({ onAccountAdded }: { onAccountAdded: () => void 
   );
 }
 
-function OperationsQueue() {
-  const operations = useApiList<{ operations: OperationSummary[] }>(api.operations, ["OPERATION_PROGRESS"]);
+/** Identifica o arquivo/pasta de uma operação do jeito que `Conflicts` já
+ * faz — sem isto a fila só mostrava tipo e estado, nunca qual arquivo
+ * estava preso (T7-05). `item_path` já vem relativo à raiz do namespace. */
+function OperationFileLabel({ op }: { op: OperationSummary }) {
+  if (!op.item_path && !op.item_name) {
+    return <span className="text-muted col-file">item removido{op.item_id ? ` (id ${op.item_id.slice(0, 8)}…)` : ""}</span>;
+  }
+  return <code className="col-file">/{op.item_path ?? op.item_name}</code>;
+}
+
+const OPERATION_TYPE_FILTER_LABELS: Record<string, string> = {
+  UploadFile: "Upload de arquivo",
+  CreateDirectory: "Criar pasta",
+  MoveItem: "Mover",
+  RenameItem: "Renomear",
+  DeleteItem: "Apagar",
+};
+
+/** Únicos estados que `GET /v1/operations` pode devolver de fato (T7-06) —
+ * `Running`/`BlockedByConflict`/`Completed`/`Cancelled` nunca aparecem ali. */
+const OPERATION_STATE_FILTER_OPTIONS = ["Pending", "WaitingRetry", "WaitingNetwork", "WaitingAuthentication", "FailedPermanent"];
+
+const OPERATIONS_PAGE_SIZE = 50;
+
+/** Espera `delayMs` sem o valor mudar antes de propagar — evita disparar uma
+ * chamada à API a cada tecla digitada na busca. */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+/** `active` controla só a releitura automática (por evento/ao reativar) —
+ * ver `useApiList`. O componente em si fica sempre montado (esta aba usa o
+ * mesmo padrão de `SyncLog`, só escondido via CSS ao trocar de aba), então
+ * filtros/página escolhidos e a última lista carregada sobrevivem à troca. */
+function OperationsQueue({ active }: { active: boolean }) {
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 300);
+  const [stateFilter, setStateFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const hasFilters = Boolean(search || stateFilter || typeFilter);
+
+  // Trocar qualquer filtro volta pra primeira página — sem isto dava pra
+  // ficar preso numa página que o novo filtro deixou vazia.
+  useEffect(() => {
+    setPage(0);
+  }, [search, stateFilter, typeFilter]);
+
+  const fetcher = useCallback(
+    () =>
+      api.operations({
+        limit: OPERATIONS_PAGE_SIZE,
+        offset: page * OPERATIONS_PAGE_SIZE,
+        operationState: stateFilter || undefined,
+        operationType: typeFilter || undefined,
+        search: search || undefined,
+      }),
+    [page, stateFilter, typeFilter, search],
+  );
+
+  const operations = useApiList(fetcher, ["OPERATION_PROGRESS"], active);
   const retry = useAction((id: string) => api.retryOperation(id), { successMessage: "Nova tentativa agendada.", onSuccess: operations.reload });
   const cancel = useAction((id: string) => api.cancelOperation(id), { successMessage: "Operação cancelada.", onSuccess: operations.reload });
+
+  const pageOperations = operations.data?.operations ?? [];
+  // `total`/`total_failed` vêm do backend sob os filtros atuais (T7-06) —
+  // contam via `COUNT(*)`, então batem certo mesmo a página vindo cortada.
+  const total = operations.data?.total ?? 0;
+  const totalFailed = operations.data?.total_failed ?? 0;
+  const activeCount = total - totalFailed;
+  const pageCount = Math.max(1, Math.ceil(total / OPERATIONS_PAGE_SIZE));
 
   return (
     <Card title="Fila de operações">
       {operations.error && <p className="error">{operations.error}</p>}
+      {!operations.loading && (
+        <div className="stat-row">
+          <span className="stat-chip">
+            <strong>{total}</strong> no total
+          </span>
+          <span className="stat-chip">
+            <strong>{activeCount}</strong> em andamento/na fila
+          </span>
+          {totalFailed > 0 && (
+            <button type="button" className="stat-chip stat-chip-danger stat-chip-clickable" onClick={() => setStateFilter("FailedPermanent")}>
+              <strong>{totalFailed}</strong> falharam de vez — clique para ver
+            </button>
+          )}
+        </div>
+      )}
+      <div className="filter-row">
+        <input type="search" placeholder="Buscar por nome do arquivo…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+          <option value="">Todos os tipos</option>
+          {Object.entries(OPERATION_TYPE_FILTER_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+          <option value="">Todos os estados</option>
+          {OPERATION_STATE_FILTER_OPTIONS.map((value) => (
+            <option key={value} value={value}>
+              {STATE_LABELS[value] ?? value}
+            </option>
+          ))}
+        </select>
+        {hasFilters && (
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => {
+              setSearchInput("");
+              setStateFilter("");
+              setTypeFilter("");
+            }}
+          >
+            Limpar filtros
+          </button>
+        )}
+      </div>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
+              <th>Arquivo</th>
               <th>Tipo</th>
               <th>Estado</th>
               <th>Tentativas</th>
@@ -452,9 +585,20 @@ function OperationsQueue() {
             </tr>
           </thead>
           <tbody>
-            {operations.data?.operations.map((op) => (
+            {pageOperations.map((op) => (
               <tr key={op.operation_id}>
-                <td>{op.operation_type}</td>
+                <td>
+                  <OperationFileLabel op={op} />
+                  {op.last_error_message && (
+                    <>
+                      <br />
+                      <span className="text-muted col-file" title={op.last_error_message}>
+                        {op.last_error_message.length > 140 ? `${op.last_error_message.slice(0, 140)}…` : op.last_error_message}
+                      </span>
+                    </>
+                  )}
+                </td>
+                <td>{OPERATION_TYPE_FILTER_LABELS[op.operation_type] ?? op.operation_type}</td>
                 <td>
                   <span className={`badge badge-op-${op.state.toLowerCase()}`}>{STATE_LABELS[op.state] ?? op.state}</span>
                 </td>
@@ -473,12 +617,25 @@ function OperationsQueue() {
                 </td>
               </tr>
             ))}
-            {!operations.loading && operations.data?.operations.length === 0 && (
-              <EmptyRow colSpan={4}>Nenhuma operação pendente — tudo sincronizado.</EmptyRow>
+            {!operations.loading && pageOperations.length === 0 && (
+              <EmptyRow colSpan={5}>{hasFilters ? "Nenhuma operação corresponde ao filtro." : "Nenhuma operação pendente — tudo sincronizado."}</EmptyRow>
             )}
           </tbody>
         </table>
       </div>
+      {total > OPERATIONS_PAGE_SIZE && (
+        <div className="pagination-row">
+          <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
+            ← Anterior
+          </button>
+          <span>
+            Página {page + 1} de {pageCount}
+          </span>
+          <button type="button" onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page + 1 >= pageCount}>
+            Próxima →
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -522,8 +679,8 @@ function ConflictResolutionPicker({ conflict, onResolved }: { conflict: Conflict
   );
 }
 
-function Conflicts() {
-  const conflicts = useApiList<{ conflicts: ConflictSummary[] }>(api.conflicts, ["CONFLICT_CREATED", "CONFLICT_RESOLVED"]);
+function Conflicts({ active }: { active: boolean }) {
+  const conflicts = useApiList<{ conflicts: ConflictSummary[] }>(api.conflicts, ["CONFLICT_CREATED", "CONFLICT_RESOLVED"], active);
 
   return (
     <Card title="Conflitos abertos">
@@ -542,7 +699,11 @@ function Conflicts() {
             {conflicts.data?.conflicts.map((c) => (
               <tr key={c.conflict_id}>
                 <td>
-                  {c.item_path || c.item_name ? <code>/{c.item_path ?? c.item_name}</code> : <span className="text-muted">item removido (id {c.item_id.slice(0, 8)}…)</span>}
+                  {c.item_path || c.item_name ? (
+                    <code className="col-file">/{c.item_path ?? c.item_name}</code>
+                  ) : (
+                    <span className="text-muted col-file">item removido (id {c.item_id.slice(0, 8)}…)</span>
+                  )}
                 </td>
                 <td>{CONFLICT_TYPE_LABELS[c.conflict_type] ?? c.conflict_type}</td>
                 <td>{new Date(c.detected_at * 1000).toLocaleString("pt-BR")}</td>
@@ -1061,14 +1222,19 @@ function AppContent() {
       <div className="tab-panel">
         {tab === "Contas" && <AccountsAndNamespaces onAccountAdded={bumpFiles} />}
         {tab === "Arquivos" && <FilesBrowser key={filesKey} />}
-        {tab === "Operações" && <OperationsQueue />}
-        {tab === "Conflitos" && <Conflicts />}
         {tab === "Exclusões" && <IgnoreRulesTab />}
         {tab === "Cache" && <CacheUsage />}
-        {/* Sempre montado (só escondido via CSS): ao contrário das outras
-            abas, o log precisa continuar acumulando eventos em segundo
-            plano — desmontar ao trocar de aba apagava tudo e reiniciava o
-            listener do zero a cada volta. */}
+        {/* Operações/Conflitos/Log ficam sempre montados (só escondidos via
+            CSS): desmontar ao trocar de aba apagava filtros/página
+            escolhidos e a última lista carregada, forçando recarregar (e
+            piscar "carregando") toda vez que o usuário voltava — `active`
+            ainda pausa a releitura automática enquanto a aba está escondida. */}
+        <div style={{ display: tab === "Operações" ? undefined : "none" }}>
+          <OperationsQueue active={tab === "Operações"} />
+        </div>
+        <div style={{ display: tab === "Conflitos" ? undefined : "none" }}>
+          <Conflicts active={tab === "Conflitos"} />
+        </div>
         <div style={{ display: tab === "Log" ? undefined : "none" }}>
           <SyncLog />
         </div>

@@ -27,10 +27,24 @@ export interface OperationSummary {
   operation_id: string;
   namespace_id: string;
   item_id: string | null;
+  item_name: string | null;
+  item_path: string | null;
   operation_type: string;
   state: string;
   priority: number;
   attempt_count: number;
+  last_error_message: string | null;
+  updated_at: number;
+}
+
+/** Mesmos valores aceitos por `GET /v1/operations` (`?state=`) — só os
+ * estados que essa rota realmente pode devolver (T7-06). */
+export interface OperationsQuery {
+  limit?: number;
+  offset?: number;
+  operationState?: string;
+  operationType?: string;
+  search?: string;
 }
 
 export interface ConflictSummary {
@@ -98,7 +112,14 @@ export const api = {
     invoke<{ parent_item_id: string; items: NamespaceItem[] }>("list_items", { namespaceId, parentItemId: parentItemId ?? null }),
   setPinState: (namespaceId: string, itemId: string, pinState: PinState, recursive = false) =>
     invoke("set_pin_state", { namespaceId, itemId, pinState, recursive }),
-  operations: () => invoke<{ operations: OperationSummary[] }>("get_operations"),
+  operations: (query: OperationsQuery = {}) =>
+    invoke<{ operations: OperationSummary[]; total: number; total_failed: number }>("get_operations", {
+      limit: query.limit ?? null,
+      offset: query.offset ?? null,
+      operationState: query.operationState ?? null,
+      operationType: query.operationType ?? null,
+      search: query.search ?? null,
+    }),
   retryOperation: (operationId: string) => invoke("retry_operation", { operationId }),
   cancelOperation: (operationId: string) => invoke("cancel_operation", { operationId }),
   conflicts: () => invoke<{ conflicts: ConflictSummary[] }>("get_conflicts"),

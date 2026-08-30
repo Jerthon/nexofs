@@ -141,10 +141,25 @@ impl ContentCache {
         tokio::fs::create_dir_all(&self.partial_dir).await?;
         let dirty_path = self.dirty_path(cache_object_id);
         let snapshot_path = self.upload_snapshot_path(cache_object_id);
-        tokio::task::spawn_blocking(move || reflink_copy::reflink_or_copy(&dirty_path, &snapshot_path))
+        // Bug real de produção: um snapshot de tentativa anterior (daemon
+        // reiniciado/matado no meio de um upload, ex.: o esgotamento de file
+        // descriptors corrigido em T7-05) fica órfão em `partial/` —
+        // `reflink_or_copy` recusa sobrescrever um destino existente e falha
+        // com "File exists" para sempre, travando o item num retry infinito
+        // (o erro nunca muda, então nunca se resolve sozinho). Este arquivo
+        // é sempre um scratch descartável desta função (ninguém mais o lê, e
+        // `remove_upload_snapshot` já o apaga ao final de todo upload) —
+        // seguro remover antes de recriar.
+        match tokio::fs::remove_file(&snapshot_path).await {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(CacheError::Io(err)),
+        }
+        let target = snapshot_path.clone();
+        tokio::task::spawn_blocking(move || reflink_copy::reflink_or_copy(&dirty_path, &target))
             .await
             .expect("spawn_blocking não deve entrar em pânico")?;
-        Ok(self.upload_snapshot_path(cache_object_id))
+        Ok(snapshot_path)
     }
 
     pub fn remove_upload_snapshot(&self, cache_object_id: &str) -> std::io::Result<()> {
@@ -267,6 +282,30 @@ mod tests {
         assert!(matches!(err, CacheError::SizeMismatch { .. }));
         assert!(!cache.is_hydrated("item-2"));
         assert!(!dir.path().join("partial").join("item-2.part").exists());
+    }
+
+    /// Bug real de produção (T7-07): um snapshot de upload órfão de uma
+    /// tentativa anterior (daemon reiniciado/matado no meio do upload)
+    /// travava TODA tentativa futura com "File exists" — o mesmo erro
+    /// sempre, então o item nunca saía do retry. `snapshot_dirty_for_upload`
+    /// precisa conseguir rodar de novo mesmo com um snapshot velho no
+    /// caminho.
+    #[tokio::test]
+    async fn snapshot_dirty_for_upload_overwrites_a_stale_snapshot_left_by_a_crashed_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ContentCache::new(dir.path().join("clean"), dir.path().join("partial"), dir.path().join("dirty"));
+        cache.begin_dirty_write("item-stale", None).await.unwrap();
+        tokio::fs::write(cache.dirty_path("item-stale"), b"conteudo atual").await.unwrap();
+
+        // Primeira "tentativa": gera o snapshot e finge que o daemon morreu
+        // antes de `remove_upload_snapshot` rodar — o arquivo fica órfão.
+        let first_snapshot = cache.snapshot_dirty_for_upload("item-stale").await.unwrap();
+        assert!(first_snapshot.is_file());
+
+        // Segunda tentativa (retry após o "crash"): antes do fix, isto
+        // falhava com `CacheError::Io` ("File exists") para sempre.
+        let second_snapshot = cache.snapshot_dirty_for_upload("item-stale").await.unwrap();
+        assert_eq!(tokio::fs::read(&second_snapshot).await.unwrap(), b"conteudo atual");
     }
 
     /// T6-09/SPEC §22.4 ("symlink attack em cache"): se outro processo do

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=Utility;
+Comment=Sistema de arquivos multi-nuvem (FUSE)
+Exec=nexofs-desktop
+StartupWMClass=nexofs-desktop
+Icon=nexofs-desktop
+Name=NexoFS
+Terminal=false
+Type=Application

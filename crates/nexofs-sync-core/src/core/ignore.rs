@@ -59,6 +59,25 @@ impl SyncCore {
     /// exclusão (SPEC §17). Público porque `nexofs-local-api` também usa
     /// para exibir caminhos legíveis (log de sincronização, conflitos).
     pub async fn item_relative_path(&self, item_id: ItemId) -> Result<PathBuf, SyncError> {
+        let mut cache = std::collections::HashMap::new();
+        self.item_relative_path_cached(item_id, &mut cache).await
+    }
+
+    /// Mesma resolução de `item_relative_path`, mas reaproveitando `cache`
+    /// entre chamadas em vez de reabrir uma conexão por nível de ancestral a
+    /// cada vez. Bug real de produção (T7-05, GET /v1/operations): milhares
+    /// de operações pendentes sob as mesmas poucas pastas faziam essa função
+    /// reabrir o caminho inteiro do zero para cada uma — o endpoint chegou a
+    /// levar dezenas de segundos (e a UI simplesmente não mostrava nada) com
+    /// uma conta grande. Quem processa muitos itens de uma vez (ex.:
+    /// `GET /v1/operations`) deve manter um único `cache` para a chamada
+    /// toda; pastas compartilhadas por várias operações então só custam uma
+    /// leitura, não uma por operação.
+    pub async fn item_relative_path_cached(
+        &self,
+        item_id: ItemId,
+        cache: &mut std::collections::HashMap<ItemId, crate::model::IndexedItem>,
+    ) -> Result<PathBuf, SyncError> {
         let root = self.bootstrap_root().await?;
         let mut segments = Vec::new();
         let mut current = item_id;
@@ -66,7 +85,14 @@ impl SyncCore {
             if current == root {
                 break;
             }
-            let item = self.get_item(current).await?.ok_or(SyncError::NotFound)?;
+            let item = match cache.get(&current) {
+                Some(item) => item.clone(),
+                None => {
+                    let item = self.get_item(current).await?.ok_or(SyncError::NotFound)?;
+                    cache.insert(current, item.clone());
+                    item
+                }
+            };
             segments.push(item.name);
             match item.parent_item_id {
                 Some(parent) if parent != current => current = parent,

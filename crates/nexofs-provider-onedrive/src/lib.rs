@@ -616,10 +616,18 @@ impl CloudProvider for OneDriveProvider {
             ),
         };
 
+        // Bug real de produção: um arquivo de 0 bytes voltava "411 Length
+        // Required" do Graph. `reqwest` não garante `Content-Length` para um
+        // corpo vazio (a heurística interna decide entre isso e
+        // `Transfer-Encoding: chunked`, que o endpoint de upload simples do
+        // Graph não aceita) — declarar o header explicitamente remove a
+        // ambiguidade para qualquer tamanho, não só zero.
+        let content_length = bytes.len();
         let mut builder = self
             .http
             .put(&url)
             .bearer_auth(request.account.access_token.expose())
+            .header(reqwest::header::CONTENT_LENGTH, content_length)
             .body(bytes);
         if let (Some(item), Some(base_version)) = (&existing, &request.base_remote_version) {
             let _ = item;

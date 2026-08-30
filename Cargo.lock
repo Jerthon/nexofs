@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-api-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "nexofs-api-governor",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-api-governor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nexofs-domain",
  "nexofs-provider-api",
@@ -1453,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-auth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "keyring",
@@ -1468,7 +1468,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-conflicts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "nexofs-domain",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-content-cache"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "nexofs-domain",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "uuid",
@@ -1512,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-fuse"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fuser",
  "libc",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-ignore"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ignore",
  "nexofs-domain",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-local-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-metadata-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nexofs-domain",
  "rusqlite",
@@ -1571,7 +1571,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-overlay"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "tempfile",
@@ -1581,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-provider-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "nexofs-domain",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-provider-fake"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "nexofs-domain",
@@ -1603,7 +1603,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-provider-googledrive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1623,7 +1623,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-provider-onedrive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1643,7 +1643,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-sync-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "nexofs-api-governor",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "nexofsd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "nexofs-api-governor",

@@ -318,6 +318,7 @@ async fn add_one_account(
         account_id,
         &authenticated.display_name,
         account_ctx,
+        authenticated.refresh_token.clone(),
         mount_path_override,
         display_name_override,
     )
@@ -489,7 +490,21 @@ async fn mount_account(
         access_token: authenticated.access_token.clone(),
     };
 
-    mount_account_with_context(store, provider, paths, governor, event_bus, cache_max_bytes, account_id, display_name, account_ctx, None, None).await
+    mount_account_with_context(
+        store,
+        provider,
+        paths,
+        governor,
+        event_bus,
+        cache_max_bytes,
+        account_id,
+        display_name,
+        account_ctx,
+        authenticated.refresh_token.clone(),
+        None,
+        None,
+    )
+    .await
 }
 
 /// Metade de `mount_account` que não depende de já ter um refresh token
@@ -511,6 +526,7 @@ async fn mount_account_with_context(
     account_id: AccountId,
     display_name: &str,
     account_ctx: ProviderAccountContext,
+    refresh_token: nexofs_provider_api::SecretToken,
     mount_path_override: Option<std::path::PathBuf>,
     namespace_name_override: Option<String>,
 ) -> anyhow::Result<MountedAccount> {
@@ -553,7 +569,8 @@ async fn mount_account_with_context(
                 namespace_remote_id: namespace.remote_namespace_id.clone(),
             },
         )
-        .with_event_bus(event_bus),
+        .with_event_bus(event_bus)
+        .with_refresh_token(refresh_token),
     );
 
     let root_item_id = sync_core.bootstrap_root().await?;

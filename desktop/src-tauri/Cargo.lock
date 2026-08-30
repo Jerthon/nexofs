@@ -1912,7 +1912,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexofs-api-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -1921,7 +1921,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "nexofs-api-client",
@@ -1939,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "nexofs-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "uuid",

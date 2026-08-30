@@ -6,8 +6,8 @@ use nexofs_api_governor::ProviderApiGovernor;
 use nexofs_content_cache::ContentCache;
 use nexofs_domain::states::OperationType;
 use nexofs_domain::{AccountId, NamespaceId, ProviderId, SecretToken};
-use nexofs_provider_api::{CloudProvider, ItemKind, MoveItemRequest, ProviderAccountContext, UploadRequest};
-use nexofs_provider_fake::FakeProvider;
+use nexofs_provider_api::{CloudProvider, ItemKind, MoveItemRequest, ProviderAccountContext, ProviderErrorKind, UploadRequest};
+use nexofs_provider_fake::{FakeProvider, FaultInjectingProvider};
 use nexofs_sync_core::{SyncCore, SyncCoreContext};
 use std::sync::Arc;
 
@@ -507,4 +507,160 @@ async fn dispatch_blocks_a_rename_when_the_remote_item_was_renamed_concurrently(
     // caso de conteúdo.
     let item_after = core.get_item(item_id).await.unwrap().unwrap();
     assert_eq!(item_after.sync_state.as_deref(), Some("CONFLICT"));
+}
+
+/// T7-03 — bug real de produção: o access token nunca era renovado depois
+/// do mount inicial, então expirava silenciosamente (~1h nos provedores
+/// reais) e todo o journal ficava preso: cada operação recebia
+/// `AuthenticationRequired` e caía direto em `FailedPermanent` (não é
+/// `is_transient()`), sem ninguém nunca tentar renovar a sessão — exigia um
+/// restart manual do daemon. Monta um `SyncCore` com `with_refresh_token`
+/// (equivalente ao que `nexofsd::bootstrap` já carrega do keyring) e injeta
+/// um `AuthenticationRequired` na próxima chamada governada.
+async fn build_core_with_fault_injector() -> (Arc<SyncCore>, nexofs_domain::ItemId, Arc<FaultInjectingProvider>, Arc<nexofs_metadata_store::MetadataStore>) {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = Box::leak(Box::new(dir));
+    let store = Arc::new(nexofs_metadata_store::MetadataStore::open(dir.path().join("nexofs.sqlite3")).unwrap());
+    let inner = Arc::new(FakeProvider::new());
+    let provider = Arc::new(FaultInjectingProvider::new(inner));
+    let governor = Arc::new(ProviderApiGovernor::new());
+    let cache = ContentCache::new(dir.path().join("cache/clean"), dir.path().join("cache/partial"), dir.path().join("cache/dirty"));
+    let overlay = nexofs_overlay::LocalOnlyOverlay::new(dir.path().join("overlay"));
+
+    let namespaces = provider.list_namespaces(&account_ctx()).await.unwrap();
+    let namespace_remote_id = namespaces[0].remote_namespace_id.clone();
+    let account_id = AccountId::new();
+    let namespace_id = NamespaceId::new();
+    {
+        let namespace_remote_id_for_row = namespace_remote_id.clone();
+        store
+            .write(move |tx| {
+                tx.execute(
+                    "INSERT INTO providers (provider_id, display_name, capabilities_json, created_at, updated_at) VALUES ('fake', 'Fake', '{}', 0, 0)",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO accounts (account_id, provider_id, provider_account_id, account_type, display_name, auth_state, created_at, updated_at) VALUES (?1, 'fake', 'fake-account', 'PERSONAL', 'Conta Fake', 'VALID', 0, 0)",
+                    rusqlite::params![account_id.to_string()],
+                )?;
+                tx.execute(
+                    "INSERT INTO namespaces (namespace_id, account_id, remote_namespace_id, display_name, namespace_type, mount_path, mount_state, created_at, updated_at) VALUES (?1, ?2, ?3, 'Fake', 'PERSONAL', '/tmp/fake-mount', 'MOUNTED', 0, 0)",
+                    rusqlite::params![namespace_id.to_string(), account_id.to_string(), namespace_remote_id_for_row],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    let ctx = SyncCoreContext {
+        provider_id: ProviderId::from("fake"),
+        account_id,
+        namespace_id,
+        namespace_remote_id,
+    };
+    let core = Arc::new(
+        SyncCore::new(store.clone(), provider.clone() as Arc<dyn CloudProvider>, governor, cache, overlay, account_ctx(), ctx)
+            .with_refresh_token(SecretToken::new("fake-refresh-token")),
+    );
+    let root = core.bootstrap_root().await.unwrap();
+    (core, root, provider, store)
+}
+
+#[tokio::test]
+async fn an_expired_access_token_is_renewed_automatically_and_the_upload_still_completes() {
+    let (core, root, provider, store) = build_core_with_fault_injector().await;
+    let item_id = core.create_local_item(root, "novo.txt", ItemKind::File).await.unwrap();
+    let path = core.begin_write(item_id).await.unwrap();
+    tokio::fs::write(&path, b"conteudo real").await.unwrap();
+    core.stabilize_upload(item_id).await.unwrap();
+
+    provider.queue_failure(ProviderErrorKind::AuthenticationRequired);
+    core.dispatch_pending_operations().await.unwrap();
+
+    let after_round_1 = core.get_item(item_id).await.unwrap().unwrap();
+    assert!(
+        after_round_1.remote_item_id.is_none(),
+        "a primeira rodada só renova o token — o upload em si só completa na próxima tentativa"
+    );
+
+    let pending = core.pending_operations().await.unwrap();
+    let op = pending.iter().find(|op| op.item_id == Some(item_id)).expect("upload deve continuar pendente, não permanentemente falho");
+    assert_eq!(op.state, nexofs_domain::states::OperationState::WaitingRetry, "com refresh_token configurado, um auth error renovável nunca deve virar FailedPermanent");
+
+    // Em produção o próximo tick chega minutos depois (`DEFAULT_RETRY_DELAY_SECS`);
+    // no teste, adianta o backoff manualmente em vez de dormir os 30s reais.
+    store
+        .write(|tx| tx.execute("UPDATE operations SET next_attempt_at = 0 WHERE state = 'WAITING_RETRY'", []))
+        .await
+        .unwrap();
+
+    core.dispatch_pending_operations().await.unwrap();
+    let after_round_2 = core.get_item(item_id).await.unwrap().unwrap();
+    assert!(after_round_2.remote_item_id.is_some(), "com o token renovado, a segunda tentativa deve completar o upload normalmente");
+}
+
+/// Sem `with_refresh_token` (ex.: todo outro teste deste arquivo, que usa
+/// `build_core()` puro) não há como renovar nada — o comportamento antigo
+/// (falha permanente imediata) precisa continuar valendo, em vez de travar
+/// silenciosamente tentando renovar um token inexistente.
+#[tokio::test]
+async fn without_a_refresh_token_configured_an_authentication_error_still_fails_permanently_as_before() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(nexofs_metadata_store::MetadataStore::open(dir.path().join("nexofs.sqlite3")).unwrap());
+    let inner = Arc::new(FakeProvider::new());
+    let provider = Arc::new(FaultInjectingProvider::new(inner));
+    let governor = Arc::new(ProviderApiGovernor::new());
+    let cache = ContentCache::new(dir.path().join("cache/clean"), dir.path().join("cache/partial"), dir.path().join("cache/dirty"));
+    let overlay = nexofs_overlay::LocalOnlyOverlay::new(dir.path().join("overlay"));
+    let namespaces = provider.list_namespaces(&account_ctx()).await.unwrap();
+    let namespace_remote_id = namespaces[0].remote_namespace_id.clone();
+    let account_id = AccountId::new();
+    let namespace_id = NamespaceId::new();
+    {
+        let namespace_remote_id_for_row = namespace_remote_id.clone();
+        store
+            .write(move |tx| {
+                tx.execute(
+                    "INSERT INTO providers (provider_id, display_name, capabilities_json, created_at, updated_at) VALUES ('fake', 'Fake', '{}', 0, 0)",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO accounts (account_id, provider_id, provider_account_id, account_type, display_name, auth_state, created_at, updated_at) VALUES (?1, 'fake', 'fake-account', 'PERSONAL', 'Conta Fake', 'VALID', 0, 0)",
+                    rusqlite::params![account_id.to_string()],
+                )?;
+                tx.execute(
+                    "INSERT INTO namespaces (namespace_id, account_id, remote_namespace_id, display_name, namespace_type, mount_path, mount_state, created_at, updated_at) VALUES (?1, ?2, ?3, 'Fake', 'PERSONAL', '/tmp/fake-mount', 'MOUNTED', 0, 0)",
+                    rusqlite::params![namespace_id.to_string(), account_id.to_string(), namespace_remote_id_for_row],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+    let ctx = SyncCoreContext {
+        provider_id: ProviderId::from("fake"),
+        account_id,
+        namespace_id,
+        namespace_remote_id,
+    };
+    let core = Arc::new(SyncCore::new(store.clone(), provider.clone() as Arc<dyn CloudProvider>, governor, cache, overlay, account_ctx(), ctx));
+    let root = core.bootstrap_root().await.unwrap();
+
+    let item_id = core.create_local_item(root, "novo.txt", ItemKind::File).await.unwrap();
+    let path = core.begin_write(item_id).await.unwrap();
+    tokio::fs::write(&path, b"conteudo real").await.unwrap();
+    core.stabilize_upload(item_id).await.unwrap();
+
+    provider.queue_failure(ProviderErrorKind::AuthenticationRequired);
+    core.dispatch_pending_operations().await.unwrap();
+
+    // `pending_operations()` só lista estados ainda "em jogo" — uma falha
+    // permanente não aparece mais ali por design, então a checagem precisa
+    // ir direto ao banco.
+    let state: String = store
+        .read(move |conn| conn.query_row("SELECT state FROM operations WHERE item_id = ?1", [item_id.to_string()], |row| row.get(0)))
+        .await
+        .unwrap();
+    assert_eq!(state, "FAILED_PERMANENT");
 }

@@ -454,10 +454,11 @@ impl SyncCore {
     /// (resolução completa fica para T4-12); falta de rede (`Network`/
     /// `Timeout`) vira `WaitingNetwork`, liberado assim que
     /// `execute_governed` detectar reconexão (T3-09/FR-OFF-005), em vez do
-    /// backoff cronometrado genérico; outro erro transitório vira retry
-    /// respeitando `Retry-After` quando o provedor o informou; qualquer
-    /// outro erro é permanente e exige intervenção manual (visível em
-    /// `/v1/metrics`).
+    /// backoff cronometrado genérico; `AuthenticationRequired` tenta renovar
+    /// o access token na hora (T7-03) antes de decidir entre retry e falha
+    /// permanente; outro erro transitório vira retry respeitando
+    /// `Retry-After` quando o provedor o informou; qualquer outro erro é
+    /// permanente e exige intervenção manual (visível em `/v1/metrics`).
     async fn handle_provider_error(
         &self,
         operation_id: nexofs_domain::OperationId,
@@ -473,11 +474,57 @@ impl SyncCore {
             ProviderErrorKind::Network | ProviderErrorKind::Timeout => {
                 self.mark_operation_waiting_network(operation_id, &err.message).await
             }
+            ProviderErrorKind::AuthenticationRequired => match self.try_refresh_access_token().await {
+                Ok(()) => {
+                    self.mark_operation_waiting_retry(operation_id, now_unix() + DEFAULT_RETRY_DELAY_SECS, &err.message)
+                        .await
+                }
+                Err(refresh_err) => {
+                    tracing::error!(
+                        namespace_id = %self.ctx.namespace_id,
+                        %refresh_err,
+                        "refresh token inválido ou revogado — conta precisa de reautenticação (NEXOFS_ADD_ACCOUNT=1)"
+                    );
+                    self.mark_operation_failed_permanent(
+                        operation_id,
+                        &format!("sessão expirada e o refresh token também falhou: {refresh_err}"),
+                    )
+                    .await
+                }
+            },
             _ if err.is_transient() => {
                 let delay = err.retry_after().map(|d| d.as_secs() as i64).unwrap_or(DEFAULT_RETRY_DELAY_SECS);
                 self.mark_operation_waiting_retry(operation_id, now_unix() + delay, &err.message).await
             }
             _ => self.mark_operation_failed_permanent(operation_id, &err.message).await,
         }
+    }
+
+    /// Renova `account_ctx.access_token` via `refresh_token` guardado —
+    /// chamado sob demanda quando uma chamada real ao provedor volta com
+    /// `AuthenticationRequired`, em vez de só na inicialização do daemon
+    /// (era isso que faltava: antes disso, o access token nunca era
+    /// renovado depois do mount inicial, então expirava silenciosamente
+    /// ~1h depois e todo o journal ficava preso). `token_refresh_lock`
+    /// serializa tentativas concorrentes desta mesma conta.
+    pub(crate) async fn try_refresh_access_token(&self) -> nexofs_provider_api::ProviderResult<()> {
+        let _guard = self.token_refresh_lock.lock().await;
+        let Some(current_refresh_token) = self.refresh_token.read().await.clone() else {
+            return Err(nexofs_provider_api::ProviderError::new(
+                ProviderErrorKind::AuthenticationRequired,
+                "nenhum refresh token disponível para renovar a sessão — reautentique com NEXOFS_ADD_ACCOUNT=1",
+            ));
+        };
+        let refreshed = self.provider.refresh_via_refresh_token(&current_refresh_token).await?;
+
+        {
+            let mut ctx = self.account_ctx.write().await;
+            ctx.access_token = refreshed.access_token;
+            ctx.tenant_id = refreshed.tenant_id;
+        }
+        *self.refresh_token.write().await = Some(refreshed.refresh_token);
+
+        tracing::info!(namespace_id = %self.ctx.namespace_id, "access token renovado em tempo de execução após expirar");
+        Ok(())
     }
 }

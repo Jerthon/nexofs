@@ -14,6 +14,28 @@ use rusqlite::{params, OptionalExtension};
 /// nenhuma chamada governada ser feita nesse meio tempo.
 const WAITING_NETWORK_POLL_SECS: i64 = 30;
 
+/// Filtros opcionais de `list_operations_page` — `None` em qualquer campo
+/// significa "não filtrar por isto".
+#[derive(Debug, Clone, Default)]
+pub struct OperationsFilter {
+    pub state: Option<OperationState>,
+    pub operation_type: Option<OperationType>,
+    /// Substring (case-insensitive para ASCII, como o `LIKE` padrão do
+    /// SQLite) do nome do item — não do caminho completo, que exigiria uma
+    /// CTE recursiva só para filtrar.
+    pub search: Option<String>,
+}
+
+pub struct OperationsPage {
+    pub operations: Vec<QueuedOperation>,
+    /// Total sob os filtros pedidos (incluindo `state`) — pode ser maior
+    /// que `operations.len()` quando a página não cobre tudo.
+    pub total: u64,
+    /// Total de `FAILED_PERMANENT` sob `operation_type`/`search`, mas
+    /// ignorando `state` de propósito — ver doc de `list_operations_page`.
+    pub total_failed: u64,
+}
+
 impl SyncCore {
     /// Enfileira uma operação remota com `idempotency_key` estável (SPEC
     /// §13.3). Uma chave já existente e ainda `Pending` tem seu payload
@@ -349,6 +371,92 @@ impl SyncCore {
             })
             .await?;
         Ok(rows)
+    }
+
+    /// Operações que já desistiram de vez (`FailedPermanent`) deste
+    /// namespace, mais recentes primeiro — nunca aparecem em
+    /// `pending_operations()` (não são mais "trabalho em andamento" para o
+    /// dispatcher/storm-detector), mas continuam precisando de atenção
+    /// humana: reautenticação, nome inválido, erro real do provedor (ex.:
+    /// `HTTP 411` visto em produção). Sem isto, uma falha permanente só
+    /// existia no log do daemon — o usuário via o arquivo como "sincronizado
+    /// há muito tempo" sem saber que ele nunca chegou a subir. Usado por
+    /// `GET /v1/operations`, `/v1/metrics` e o pacote de diagnóstico.
+    pub async fn failed_operations(&self) -> Result<Vec<QueuedOperation>, SyncError> {
+        let namespace_id_s = self.ctx.namespace_id.to_string();
+        let query = format!("SELECT {OPERATION_COLUMNS} FROM operations WHERE namespace_id = ?1 AND state = 'FAILED_PERMANENT' ORDER BY updated_at DESC");
+        let rows = self
+            .store
+            .read(move |conn| {
+                let mut stmt = conn.prepare(&query)?;
+                let rows = stmt.query_map([namespace_id_s], row_to_operation)?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        Ok(rows)
+    }
+
+    /// `GET /v1/operations` com paginação e filtros (T7-06): página pedida
+    /// (`limit`/`offset`) de operações ainda não concluídas — o mesmo
+    /// conjunto de `pending_operations()` + `failed_operations()`, mas como
+    /// UMA query paginável, com `state`/`operation_type`/`search` (nome do
+    /// item, `LIKE`) opcionais. `total`/`total_failed` continuam contando
+    /// via `COUNT(*)` (sem resolver nome/caminho — o que é caro), então os
+    /// indicadores da UI batem certo mesmo com a página atual truncada.
+    /// `total_failed` ignora o filtro de `state` de propósito: é o que
+    /// permite ao usuário ver quantos falharam de vez mesmo filtrando por
+    /// outro estado, e clicar nesse número para trocar o filtro.
+    pub async fn list_operations_page(&self, filter: OperationsFilter, limit: u32, offset: u32) -> Result<OperationsPage, SyncError> {
+        let namespace_id_s = self.ctx.namespace_id.to_string();
+        let state_s = filter.state.map(operation_state_to_sql);
+        let operation_type_s = filter.operation_type.map(operation_type_to_sql);
+        // Escapa `%`/`_` do termo digitado antes de envolver em `%...%` —
+        // sem isto, um nome de arquivo real contendo esses caracteres (ex.:
+        // "50%_final.docx") quebraria o `LIKE` de formas surpreendentes.
+        let search_pattern = filter.search.as_deref().filter(|s| !s.trim().is_empty()).map(|s| {
+            let escaped = s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+            format!("%{escaped}%")
+        });
+        let limit = limit.clamp(1, 200) as i64;
+        let offset = offset as i64;
+
+        let count_query = "SELECT COUNT(*) FROM operations WHERE namespace_id = ?1 \
+             AND state IN ('PENDING','WAITING_RETRY','WAITING_NETWORK','WAITING_AUTHENTICATION','FAILED_PERMANENT') \
+             AND (?2 IS NULL OR state = ?2) \
+             AND (?3 IS NULL OR operation_type = ?3) \
+             AND (?4 IS NULL OR item_id IN (SELECT item_id FROM items WHERE namespace_id = ?1 AND name LIKE ?4 ESCAPE '\\'))";
+        let failed_count_query = "SELECT COUNT(*) FROM operations WHERE namespace_id = ?1 \
+             AND state = 'FAILED_PERMANENT' \
+             AND (?3 IS NULL OR operation_type = ?3) \
+             AND (?4 IS NULL OR item_id IN (SELECT item_id FROM items WHERE namespace_id = ?1 AND name LIKE ?4 ESCAPE '\\'))";
+        let page_query = format!(
+            "SELECT {OPERATION_COLUMNS} FROM operations WHERE namespace_id = ?1 \
+             AND state IN ('PENDING','WAITING_RETRY','WAITING_NETWORK','WAITING_AUTHENTICATION','FAILED_PERMANENT') \
+             AND (?2 IS NULL OR state = ?2) \
+             AND (?3 IS NULL OR operation_type = ?3) \
+             AND (?4 IS NULL OR item_id IN (SELECT item_id FROM items WHERE namespace_id = ?1 AND name LIKE ?4 ESCAPE '\\')) \
+             ORDER BY (CASE WHEN state = 'FAILED_PERMANENT' THEN 0 ELSE 1 END), priority ASC, created_at ASC \
+             LIMIT ?5 OFFSET ?6"
+        );
+
+        let (total, total_failed, operations) = self
+            .store
+            .read(move |conn| {
+                let total: i64 = conn.query_row(count_query, params![namespace_id_s, state_s, operation_type_s, search_pattern], |row| row.get(0))?;
+                let total_failed: i64 =
+                    conn.query_row(failed_count_query, params![namespace_id_s, state_s, operation_type_s, search_pattern], |row| row.get(0))?;
+                let mut stmt = conn.prepare(&page_query)?;
+                let rows = stmt.query_map(params![namespace_id_s, state_s, operation_type_s, search_pattern, limit, offset], row_to_operation)?;
+                let operations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok((total, total_failed, operations))
+            })
+            .await?;
+
+        Ok(OperationsPage {
+            operations,
+            total: total.max(0) as u64,
+            total_failed: total_failed.max(0) as u64,
+        })
     }
 
     /// Como `pending_operations`, mas só as que já venceram seu backoff

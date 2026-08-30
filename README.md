@@ -50,14 +50,14 @@ As decisões de design com o *porquê* de cada uma estão documentadas em [`docs
 
 ## Instalação via pacote pronto
 
-Pacotes `.deb` (Ubuntu/Debian) e `.rpm` (Fedora/RHEL) do daemon (`nexofsd`) + CLI (`nexofs`), organizados por versão em [`site/downloads/`](site/downloads/) (também publicados em [GitHub Releases](https://github.com/jerthon/nexofs/releases)).
+Pacotes `.deb` (Ubuntu/Debian) e `.rpm` (Fedora/RHEL) com tudo num único instalador — daemon (`nexofsd`), CLI (`nexofs`) e interface gráfica (`nexofs-desktop`) —, organizados por versão em [`site/downloads/`](site/downloads/) (também publicados em [GitHub Releases](https://github.com/jerthon/nexofs/releases)).
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./site/downloads/0.1.0/nexofs_0.1.0-1_amd64.deb
+sudo apt install ./site/downloads/0.1.1/nexofs_0.1.1-1_amd64.deb
 
 # Fedora/RHEL
-sudo dnf install ./site/downloads/0.1.0/nexofs-0.1.0-1.fc44.x86_64.rpm
+sudo dnf install ./site/downloads/0.1.1/nexofs-0.1.1-1.fc44.x86_64.rpm
 ```
 
 ## Build a partir do código-fonte
@@ -72,7 +72,7 @@ npm install
 cargo tauri build
 ```
 
-Pacotes prontos (`.spec`/`debian/rules`) para RPM e DEB do daemon ficam em [`packaging/`](packaging/).
+Pacotes prontos (`.spec`/`debian/rules`) para RPM e DEB — com o daemon, a CLI e a interface gráfica no mesmo instalador — ficam em [`packaging/`](packaging/).
 
 ### Google Drive: credenciais do app
 

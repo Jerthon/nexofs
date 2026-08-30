@@ -45,6 +45,14 @@ pub struct QueuedOperation {
     /// valor já atualizado mascararia silenciosamente o próprio conflito que
     /// o controle otimista de versão existe para pegar (T3-07/T3-08).
     pub base_remote_version: Option<String>,
+    /// Mensagem da última falha (transitória ou permanente) — sem isto, um
+    /// erro real (ex.: `HTTP 411 Length Required` do provedor) só existia
+    /// no log do daemon: o usuário via o arquivo "ainda sincronizando" sem
+    /// nenhuma pista de por quê, e uma falha permanente virava silêncio
+    /// total assim que saía de `pending_operations()`. `None` para uma
+    /// operação que ainda nunca falhou.
+    pub last_error_message: Option<String>,
+    pub updated_at: i64,
 }
 
 pub(crate) fn operation_type_to_sql(t: OperationType) -> &'static str {
