@@ -74,7 +74,10 @@ jobs:
           cp packaging/rpm/nexofs.spec /tmp/rpmbuild/SPECS/
 
       - name: Build do pacote .rpm
-        run: rpmbuild --define "_topdir /tmp/rpmbuild" -bb /tmp/rpmbuild/SPECS/nexofs.spec
+        # --nodeps: "cargo"/"rust" do BuildRequires são satisfeitos via
+        # rustup, não via dnf, então o rpm não os reconhece como instalados
+        # (mesmo motivo de sempre usar --nodeps nos builds locais).
+        run: rpmbuild --define "_topdir /tmp/rpmbuild" -bb --nodeps /tmp/rpmbuild/SPECS/nexofs.spec
 
       - name: Coletar artefato
         run: |
