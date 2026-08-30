@@ -30,7 +30,10 @@ jobs:
       - name: Build do pacote .deb
         run: |
           ln -s packaging/deb/debian debian
-          dpkg-buildpackage -us -uc -b
+          # -d: cargo/rustc vêm do dtolnay/rust-toolchain e nodejs/npm do
+          # actions/setup-node, não de pacotes apt — dpkg-checkbuilddeps não
+          # os reconhece como satisfeitos mesmo estando no PATH.
+          dpkg-buildpackage -us -uc -b -d
 
       - name: Coletar artefato
         run: |
@@ -54,7 +57,14 @@ jobs:
             nodejs npm webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel openssl-devel
 
       - name: Montar árvore de build do rpmbuild
+        # O checkout dentro de `container:` fica num bind-mount que o git
+        # enxerga como um limite de filesystem à parte — sem isto, "git
+        # archive" falha com "not a git repository" mesmo o .git existindo
+        # (a própria mensagem de erro do git aponta esta variável).
+        env:
+          GIT_DISCOVERY_ACROSS_FILESYSTEM: 1
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           version=$(grep -m1 '^Version:' packaging/rpm/nexofs.spec | awk '{print $2}')
           mkdir -p /tmp/rpmbuild/SOURCES /tmp/rpmbuild/SPECS
           git archive --prefix="nexofs-${version}/" -o "/tmp/rpmbuild/SOURCES/nexofs-${version}.tar.gz" HEAD
