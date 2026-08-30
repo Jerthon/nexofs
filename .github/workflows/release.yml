@@ -52,9 +52,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Instalar toolchain de empacotamento RPM
+        # `dnf install rust` traz o rustc empacotado pela distro (Fedora 40
+        # ficou em 1.86), atrás demais para várias dependências do
+        # workspace — igual ao job do .deb, instala via rustup em vez do
+        # pacote da distro para pegar a stable de verdade.
         run: |
-          dnf install -y cargo rust systemd-rpm-macros rpm-build fuse3-devel gcc tar git \
+          dnf install -y systemd-rpm-macros rpm-build fuse3-devel gcc tar curl \
             nodejs npm webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel openssl-devel
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Montar árvore de build do rpmbuild
         # A imagem fedora:40 não tem `git` instalado — o actions/checkout
