@@ -746,6 +746,58 @@ footer {
   font-size: 0.78rem;
 }
 
+.service-indicator {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.service-details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.45rem 1.25rem;
+  margin: 0 0 1.1rem;
+  font-size: 0.88rem;
+}
+
+.service-details dt {
+  color: var(--text-muted);
+}
+
+.service-details dd {
+  margin: 0;
+}
+
+.service-logs-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.92rem;
+}
+
+.service-logs {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-muted) 6%, transparent);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.service-log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.service-log-error {
+  color: var(--danger);
+}
+
+.service-log-warn {
+  color: var(--warning);
+}
+
 .ignore-suggestions {
   display: flex;
   flex-direction: column;

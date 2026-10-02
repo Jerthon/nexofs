@@ -15,6 +15,8 @@ import {
   IgnoreRule,
   IgnoreProfileSuggestion,
   CloudProviders,
+  ServiceStatus,
+  ServiceAction,
 } from "./api";
 import { ToastProvider, useAction } from "./toast";
 import logoLight from "./assets/logo.png";
@@ -253,6 +255,11 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         <p>Quanto espaço em disco cada conta está usando com arquivos baixados. "Aplicar quota agora" libera espaço de itens não fixados.</p>
         <h3>Log</h3>
         <p>Acompanha em tempo real o que está sendo sincronizado, conta por conta, enquanto esta janela estiver aberta.</p>
+        <h3>Serviço</h3>
+        <p>
+          Estado do <code>nexofsd</code>, o serviço em segundo plano que monta as contas, com as últimas linhas do log dele. Se as outras abas mostrarem
+          erro de conexão, comece por aqui: dá para iniciar, parar ou reiniciar o serviço, sempre com confirmação antes.
+        </p>
       </div>
     </Modal>
   );
@@ -1188,7 +1195,177 @@ function DiagnosticsLink() {
   );
 }
 
-const TABS = ["Contas", "Arquivos", "Exclusões", "Operações", "Conflitos", "Cache", "Log"] as const;
+/** O systemd não tem como avisar a UI de mudança de estado — e com o
+ * serviço parado nem existe o stream SSE do daemon —, então aqui é polling. */
+const SERVICE_POLL_MS = 5000;
+
+/** `activating` + `auto-restart` é o intervalo entre uma falha e a próxima
+ * tentativa do `Restart=on-failure` da unidade: para quem olha, é falha. */
+function describeService(status: ServiceStatus): { label: string; badge: string } {
+  if (status.LoadState === "not-found") return { label: "Não instalado", badge: "" };
+  if (status.SubState === "auto-restart") return { label: "Falhou — tentando de novo", badge: "badge-op-failedpermanent" };
+  switch (status.ActiveState) {
+    case "active":
+      return { label: "Em execução", badge: "badge-mounted" };
+    case "failed":
+      return { label: "Falhou", badge: "badge-op-failedpermanent" };
+    case "activating":
+      return { label: "Iniciando…", badge: "badge-op-running" };
+    case "deactivating":
+      return { label: "Parando…", badge: "badge-op-running" };
+    case "inactive":
+      return { label: "Parado", badge: "" };
+    default:
+      return { label: status.ActiveState, badge: "" };
+  }
+}
+
+const SERVICE_RESULT_LABELS: Record<string, string> = {
+  success: "Sem erros",
+  signal: "Encerrado por um sinal",
+  "core-dump": "Travou (core dump)",
+  timeout: "Não respondeu a tempo",
+  watchdog: "Parou de responder (watchdog)",
+  "start-limit-hit": "Falhou vezes demais seguidas — o systemd desistiu",
+};
+
+/** `systemctl show` devolve "Fri 2026-10-02 11:13:58 -03", já no fuso local. */
+function formatSystemdTimestamp(raw: string): string {
+  const match = raw.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]} ${match[4]}` : raw || "—";
+}
+
+const SERVICE_ACTION_CONFIRMATIONS: Record<ServiceAction, { title: string; message: string; okLabel: string; kind: "info" | "warning" }> = {
+  start: {
+    title: "Iniciar serviço",
+    message: "Iniciar o serviço do NexoFS? As contas configuradas serão montadas.",
+    okLabel: "Iniciar",
+    kind: "info",
+  },
+  stop: {
+    title: "Parar serviço",
+    message:
+      "Parar o serviço do NexoFS? Todas as contas serão desmontadas e a sincronização fica parada até o serviço ser iniciado de novo. Programas com arquivos abertos nessas pastas perdem acesso a eles.",
+    okLabel: "Parar",
+    kind: "warning",
+  },
+  restart: {
+    title: "Reiniciar serviço",
+    message:
+      "Reiniciar o serviço do NexoFS? As contas serão desmontadas e montadas de novo. Programas com arquivos abertos nessas pastas perdem acesso a eles por alguns segundos.",
+    okLabel: "Reiniciar",
+    kind: "warning",
+  },
+};
+
+function ServiceIndicator({ status, onClick }: { status: ServiceStatus | null; onClick: () => void }) {
+  if (!status) return null;
+  const { label, badge } = describeService(status);
+  return (
+    <button className="service-indicator" onClick={onClick} title="Ver status do serviço">
+      <span className={`badge ${badge}`}>Serviço: {label}</span>
+    </button>
+  );
+}
+
+function ServiceTab({ service }: { service: { data: ServiceStatus | null; error: string | null; reload: () => void } }) {
+  const logs = useApiList(api.serviceLogs, []);
+  useEffect(() => {
+    const timer = setInterval(logs.reload, SERVICE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [logs.reload]);
+
+  const start = useAction(() => api.controlService("start"), { successMessage: "Serviço iniciado." });
+  const stop = useAction(() => api.controlService("stop"), { successMessage: "Serviço parado." });
+  const restart = useAction(() => api.controlService("restart"), { successMessage: "Serviço reiniciado." });
+  const runners: Record<ServiceAction, { run: () => Promise<unknown> }> = { start, stop, restart };
+  const pending = start.pending || stop.pending || restart.pending;
+
+  async function confirmAndRun(action: ServiceAction) {
+    const { title, message, okLabel, kind } = SERVICE_ACTION_CONFIRMATIONS[action];
+    if (!(await confirmDialog(message, { title, kind, okLabel, cancelLabel: "Cancelar" }))) return;
+    await runners[action].run();
+    // Também em caso de erro: é justamente quando o log tem o motivo.
+    service.reload();
+    logs.reload();
+  }
+
+  const status = service.data;
+  const installed = status !== null && status.LoadState !== "not-found";
+  const running = status?.ActiveState === "active" || (status?.ActiveState === "activating" && status.SubState !== "auto-restart");
+  // Inclui o `auto-restart`: parar é a única forma de interromper um loop de falhas.
+  const stoppable = status?.ActiveState === "active" || status?.ActiveState === "activating";
+  const described = status ? describeService(status) : null;
+  const lastResult =
+    status?.Result === "exit-code" ? `Saiu com erro (código ${status.ExecMainStatus})` : (status && (SERVICE_RESULT_LABELS[status.Result] ?? status.Result)) || "—";
+
+  return (
+    <Card
+      title="Serviço do NexoFS"
+      action={
+        <div className="actions">
+          <button className="btn-primary" onClick={() => confirmAndRun("start")} disabled={!installed || running || pending}>
+            {start.pending ? "Iniciando…" : "Iniciar"}
+          </button>
+          <button onClick={() => confirmAndRun("restart")} disabled={!installed || pending}>
+            {restart.pending ? "Reiniciando…" : "Reiniciar"}
+          </button>
+          <button className="btn-danger" onClick={() => confirmAndRun("stop")} disabled={!installed || !stoppable || pending}>
+            {stop.pending ? "Parando…" : "Parar"}
+          </button>
+        </div>
+      }
+    >
+      <p className="hint">
+        O <code>nexofsd</code> é o serviço em segundo plano que monta as contas e sincroniza os arquivos — esta janela é só a interface dele.
+      </p>
+      {service.error && <p className="error">{service.error}</p>}
+      {status && !installed && (
+        <p className="error">
+          A unidade <code>nexofsd.service</code> não está instalada para este usuário — reinstale o pacote do NexoFS.
+        </p>
+      )}
+      {status && installed && described && (
+        <dl className="service-details">
+          <dt>Estado</dt>
+          <dd>
+            <span className={`badge ${described.badge}`}>{described.label}</span> <span className="text-muted">({status.SubState})</span>
+          </dd>
+          <dt>Desde</dt>
+          <dd>{formatSystemdTimestamp(status.StateChangeTimestamp)}</dd>
+          <dt>PID</dt>
+          <dd>{status.MainPID !== "0" ? status.MainPID : "—"}</dd>
+          <dt>Inicia com a sessão</dt>
+          <dd>{status.UnitFileState === "enabled" ? "Sim" : status.UnitFileState === "disabled" ? "Não" : status.UnitFileState}</dd>
+          <dt>Último resultado</dt>
+          <dd>{lastResult}</dd>
+          {status.NRestarts !== "0" && (
+            <>
+              {/* Entre uma tentativa e outra o estado alterna "Iniciando…"/"Falhou" — o contador é o que mostra que é um loop. */}
+              <dt>Reinícios automáticos</dt>
+              <dd className="service-log-error">{status.NRestarts}</dd>
+            </>
+          )}
+        </dl>
+      )}
+      <h3 className="service-logs-title">Log recente do serviço</h3>
+      {logs.error && <p className="error">{logs.error}</p>}
+      <div className="service-logs">
+        {!logs.loading && logs.data?.length === 0 && <p className="empty-row">Nenhuma linha de log.</p>}
+        {logs.data
+          ?.slice()
+          .reverse()
+          .map((line, index) => (
+            <div key={index} className={`service-log-line ${/\bERROR\b|Failed|failed/.test(line) ? "service-log-error" : /\bWARN\b/.test(line) ? "service-log-warn" : ""}`}>
+              {line}
+            </div>
+          ))}
+      </div>
+    </Card>
+  );
+}
+
+const TABS = ["Contas", "Arquivos", "Exclusões", "Operações", "Conflitos", "Cache", "Log", "Serviço"] as const;
 type Tab = (typeof TABS)[number];
 
 function AppContent() {
@@ -1198,6 +1375,11 @@ function AppContent() {
   const [showHelp, setShowHelp] = useState(false);
   const conflicts = useApiList<{ conflicts: ConflictSummary[] }>(api.conflicts, ["CONFLICT_CREATED", "CONFLICT_RESOLVED"]);
   const conflictCount = conflicts.data?.conflicts.length ?? 0;
+  const service = useApiList(api.serviceStatus, []);
+  useEffect(() => {
+    const timer = setInterval(service.reload, SERVICE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [service.reload]);
 
   return (
     <main>
@@ -1206,9 +1388,12 @@ function AppContent() {
           <img src={logoLight} alt="NexoFS" className="brand-logo brand-logo-light" />
           <img src={logoDark} alt="NexoFS" className="brand-logo brand-logo-dark" />
         </div>
-        <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Ajuda" title="Ajuda">
-          ?
-        </button>
+        <div className="actions">
+          <ServiceIndicator status={service.data} onClick={() => setTab("Serviço")} />
+          <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Ajuda" title="Ajuda">
+            ?
+          </button>
+        </div>
       </header>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       <nav className="tabbar">
@@ -1224,6 +1409,7 @@ function AppContent() {
         {tab === "Arquivos" && <FilesBrowser key={filesKey} />}
         {tab === "Exclusões" && <IgnoreRulesTab />}
         {tab === "Cache" && <CacheUsage />}
+        {tab === "Serviço" && <ServiceTab service={service} />}
         {/* Operações/Conflitos/Log ficam sempre montados (só escondidos via
             CSS): desmontar ao trocar de aba apagava filtros/página
             escolhidos e a última lista carregada, forçando recarregar (e

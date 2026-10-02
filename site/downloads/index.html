@@ -32,7 +32,7 @@
   <div class="wrap">
     <div class="badge"><span class="dot"></span> Todas as versões</div>
     <h1 style="font-size: clamp(2rem, 4vw, 3rem);">Downloads do <span class="grad">NexoFS</span></h1>
-    <p class="lead">Instaladores <code>.deb</code> (Ubuntu/Debian) e <code>.rpm</code> (Fedora/RHEL) do daemon + CLI, por versão.</p>
+    <p class="lead">Instaladores <code>.deb</code> (Ubuntu/Debian) e <code>.rpm</code> (Fedora/RHEL) do daemon, CLI e interface gráfica, por versão.</p>
   </div>
 </header>
 
@@ -41,9 +41,18 @@
 
     <div class="card" style="max-width:720px; margin:0 auto 20px;">
       <h3 style="display:flex; align-items:center; gap:10px;">
-        v0.1.1
+        v0.1.2
         <span class="chip" style="padding:3px 10px; font-size:0.75rem;">mais recente</span>
       </h3>
+      <p>Corrige o daemon que deixava de subir ("UNIQUE constraint failed: namespaces.mount_path") quando a Microsoft passou a devolver o ID do drive de contas OneDrive pessoais em maiúsculas. A interface gráfica ganhou a aba <strong>Serviço</strong>: mostra o estado do <code>nexofsd</code> e o log recente, e permite iniciar, parar ou reiniciar o serviço, sempre com confirmação antes.</p>
+      <div class="hero-actions" style="justify-content:flex-start; margin-top:16px;">
+        <a class="btn btn-primary" href="0.1.2/nexofs_0.1.2-1_amd64.deb">.deb — Ubuntu/Debian</a>
+        <a class="btn btn-ghost" href="0.1.2/nexofs-0.1.2-1.fc44.x86_64.rpm">.rpm — Fedora/RHEL</a>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:720px; margin:0 auto 20px;">
+      <h3>v0.1.1</h3>
       <p>Agora inclui a interface gráfica no mesmo pacote (antes era um instalador separado). Corrige também o access token do provedor nunca ser renovado depois do mount inicial, erros permanentes que desapareciam do journal sem avisar o usuário, e upload de arquivo de 0 bytes retornando 411 no OneDrive.</p>
       <div class="hero-actions" style="justify-content:flex-start; margin-top:16px;">
         <a class="btn btn-primary" href="0.1.1/nexofs_0.1.1-1_amd64.deb">.deb — Ubuntu/Debian</a>

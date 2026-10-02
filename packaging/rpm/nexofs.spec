@@ -1,5 +1,5 @@
 Name:           nexofs
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        Sistema de arquivos multi-nuvem (FUSE)
 
@@ -83,6 +83,17 @@ install -Dm644 desktop/src-tauri/icons/icon.png %{buildroot}%{_datadir}/icons/hi
 %systemd_user_postun_with_restart nexofsd.service
 
 %changelog
+* Fri Oct 02 2026 NexoFS <noreply@nexofs.dev> - 0.1.2-1
+- Corrige o daemon não subindo ("UNIQUE constraint failed:
+  namespaces.mount_path") quando o Microsoft Graph passa a devolver o ID
+  do drive de uma conta OneDrive pessoal com outra caixa (maiúsculas em
+  vez de minúsculas): a busca do namespace já indexado não o encontrava e
+  tentava criar um segundo no mesmo ponto de montagem. A comparação agora
+  ignora maiúsculas/minúsculas.
+- Interface desktop: nova aba "Serviço" com o estado do nexofsd
+  (systemd --user), contador de reinícios automáticos e as últimas linhas
+  do log do serviço, com botões para iniciar, parar e reiniciar — sempre
+  com confirmação antes. O estado do serviço também aparece no cabeçalho.
 * Sat Aug 29 2026 NexoFS <noreply@nexofs.dev> - 0.1.1-1
 - Corrige o access token do provedor nunca ser renovado depois do mount
   inicial: expirava em ~1h e travava o journal inteiro em

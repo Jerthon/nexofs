@@ -1,7 +1,9 @@
 //! T5-03/SPEC §2.2.2 — backend Tauri fino: só fala com a API local do
 //! daemon (`nexofs-api-client`, o mesmo cliente que `nexofs-cli` usa).
 //! NUNCA acessa SQLite nem guarda refresh token — a UI é só um cliente a
-//! mais da mesma API que a CLI e qualquer outra ferramenta usam.
+//! mais da mesma API que a CLI e qualquer outra ferramenta usam. Única
+//! exceção: o controle do próprio serviço (`*_service*`), que fala com o
+//! `systemctl --user` — com o `nexofsd` parado não existe API a quem pedir.
 
 use nexofs_api_client::ApiClient;
 use nexofs_domain::paths::NexoFsPaths;
@@ -199,6 +201,80 @@ async fn sync_now(state: tauri::State<'_, AppState>, namespace_id: String) -> Re
     state.client.post(&format!("/v1/namespaces/{namespace_id}/sync-now"), None).await.map_err(to_command_error)
 }
 
+const SERVICE_UNIT: &str = "nexofsd.service";
+
+/// Enum em vez de `String`: o verbo vai direto para a linha de comando do
+/// `systemctl`, então só estes três valores podem chegar até lá.
+#[derive(serde::Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum ServiceAction {
+    Start,
+    Stop,
+    Restart,
+}
+
+impl ServiceAction {
+    fn systemctl_verb(self) -> &'static str {
+        match self {
+            ServiceAction::Start => "start",
+            ServiceAction::Stop => "stop",
+            ServiceAction::Restart => "restart",
+        }
+    }
+}
+
+/// Sem shell: argumentos fixos passados direto ao processo. `spawn_blocking`
+/// porque `start`/`restart` só retornam quando o daemon avisa que montou
+/// (`Type=notify`) ou desiste — pode levar vários segundos.
+async fn run_system_command(program: &'static str, args: Vec<&'static str>) -> Result<String, String> {
+    let output = tauri::async_runtime::spawn_blocking(move || std::process::Command::new(program).args(&args).output())
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| format!("não foi possível executar {program}: {err}"))?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(if stderr.is_empty() { format!("{program} terminou com {}", output.status) } else { stderr })
+}
+
+/// Propriedades cruas de `systemctl --user show`, com os mesmos nomes do
+/// systemd — com a unidade não instalada, `LoadState` vem `not-found`.
+#[tauri::command]
+async fn get_service_status() -> Result<Value, String> {
+    let stdout = run_system_command(
+        "systemctl",
+        vec![
+            "--user",
+            "show",
+            SERVICE_UNIT,
+            "--property=LoadState,ActiveState,SubState,UnitFileState,MainPID,Result,ExecMainStatus,StateChangeTimestamp,NRestarts",
+        ],
+    )
+    .await?;
+    let properties = stdout
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, value)| (key.to_string(), Value::String(value.to_string())))
+        .collect();
+    Ok(Value::Object(properties))
+}
+
+#[tauri::command]
+async fn get_service_logs() -> Result<Vec<String>, String> {
+    let stdout = run_system_command(
+        "journalctl",
+        vec!["--user", "--unit", SERVICE_UNIT, "--lines", "100", "--no-pager", "--output", "short-iso", "--no-hostname", "--quiet"],
+    )
+    .await?;
+    Ok(stdout.lines().map(str::to_string).collect())
+}
+
+#[tauri::command]
+async fn control_service(action: ServiceAction) -> Result<(), String> {
+    run_system_command("systemctl", vec!["--user", action.systemctl_verb(), SERVICE_UNIT]).await.map(|_| ())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -329,6 +405,9 @@ pub fn run() {
             generate_diagnostics_package,
             refresh_namespace,
             sync_now,
+            get_service_status,
+            get_service_logs,
+            control_service,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar a aplicação NexoFS");

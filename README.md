@@ -21,7 +21,7 @@ NexoFS monta contas de nuvem (OneDrive, Google Drive) como um sistema de arquivo
 - **Cache de conteúdo local** com contabilização por conta (limpo / modificado / parcial / mantido localmente).
 - **Exclusões estilo `.gitignore`**, com perfis sugeridos automaticamente a partir de manifestos do projeto (`package.json`, `Cargo.toml`, etc.).
 - **Resolução de conflitos nunca-silenciosa**: nenhuma escrita concorrente é descartada sem o usuário decidir o que fazer ([ADR-012](docs/adr/0012-conflitos-nunca-sobrescrevem-silenciosamente.md)).
-- **Interface desktop** (Tauri) com abas para contas, arquivos, exclusões, operações, conflitos, cache e log de sincronização em tempo real.
+- **Interface desktop** (Tauri) com abas para contas, arquivos, exclusões, operações, conflitos, cache, log de sincronização em tempo real e status do serviço `nexofsd` (iniciar/parar/reiniciar, com confirmação).
 - **CLI de administração** (`nexofs`) para tudo que a interface gráfica faz, útil para servidores/scripts.
 - **Daemon separado da UI** (`nexofsd`) — a sincronização continua rodando mesmo com a janela fechada ([ADR-005](docs/adr/0005-daemon-separado-da-ui.md)).
 
@@ -90,7 +90,7 @@ As mesmas variáveis também funcionam em tempo de *execução* como override (�
 
 ### Interface desktop
 
-Abra "NexoFS" no menu de aplicativos, clique em **+ Adicionar conta**, escolha o provedor, o ponto de montagem e autentique. A janela some para a bandeja do sistema ao fechar — a sincronização continua em segundo plano via `nexofsd`.
+Abra "NexoFS" no menu de aplicativos, clique em **+ Adicionar conta**, escolha o provedor, o ponto de montagem e autentique. A janela some para a bandeja do sistema ao fechar — a sincronização continua em segundo plano via `nexofsd`. O estado do serviço aparece no canto superior direito; a aba **Serviço** mostra o log recente dele e permite iniciá-lo, pará-lo ou reiniciá-lo (equivalente a `systemctl --user start|stop|restart nexofsd.service`).
 
 ### CLI
 

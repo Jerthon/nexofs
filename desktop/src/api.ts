@@ -99,6 +99,22 @@ export interface IgnoreProfileSuggestion {
   patterns: string[];
 }
 
+/** Não vem da API do daemon: são as propriedades de `systemctl --user show
+ * nexofsd.service`, com os nomes exatos do systemd (`get_service_status`). */
+export interface ServiceStatus {
+  LoadState: string;
+  ActiveState: string;
+  SubState: string;
+  UnitFileState: string;
+  MainPID: string;
+  Result: string;
+  ExecMainStatus: string;
+  StateChangeTimestamp: string;
+  NRestarts: string;
+}
+
+export type ServiceAction = "start" | "stop" | "restart";
+
 export const api = {
   status: () => invoke<{ namespaces: { namespace_id: string }[] }>("get_status"),
   accounts: () => invoke<{ accounts: AccountSummary[] }>("get_accounts"),
@@ -135,4 +151,7 @@ export const api = {
   generateDiagnosticsPackage: () => invoke<{ saved_to: string }>("generate_diagnostics_package"),
   refreshNamespace: (namespaceId: string) => invoke("refresh_namespace", { namespaceId }),
   syncNow: (namespaceId: string) => invoke("sync_now", { namespaceId }),
+  serviceStatus: () => invoke<ServiceStatus>("get_service_status"),
+  serviceLogs: () => invoke<string[]>("get_service_logs"),
+  controlService: (action: ServiceAction) => invoke("control_service", { action }),
 };

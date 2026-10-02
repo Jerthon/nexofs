@@ -237,6 +237,11 @@ pub async fn store_refresh_token(account_id: AccountId, refresh_token: SecretTok
 /// uma mudança de `mount_path` (manual hoje, por UI/CLI futuramente,
 /// SPEC §8.1 "o usuário PODE configurar outro diretório") sobreviva a
 /// reinícios do daemon.
+///
+/// `COLLATE NOCASE`: bug real de produção — o Graph passou a devolver o
+/// `drive.id` de uma conta pessoal em maiúsculas (`8481C64B…`) depois de
+/// gravado em minúsculas, a busca exata falhava e o daemon tentava criar um
+/// segundo namespace no mesmo `mount_path` (UNIQUE), sem montar a conta.
 pub async fn find_existing_namespace(
     store: &MetadataStore,
     account_id: AccountId,
@@ -247,7 +252,7 @@ pub async fn find_existing_namespace(
     let row: Option<(String, String, String)> = store
         .read(move |conn| {
             conn.query_row(
-                "SELECT namespace_id, mount_path, display_name FROM namespaces WHERE account_id = ?1 AND remote_namespace_id = ?2",
+                "SELECT namespace_id, mount_path, display_name FROM namespaces WHERE account_id = ?1 AND remote_namespace_id = ?2 COLLATE NOCASE",
                 params![account_id_s, remote_namespace_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -405,4 +410,40 @@ pub fn default_mount_path_for(display_name: &str) -> anyhow::Result<PathBuf> {
         .collect();
     let safe_name = if safe_name.is_empty() { "Conta".to_string() } else { safe_name };
     Ok(PathBuf::from(home).join("NexoFS").join(safe_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexofs_provider_api::NamespaceKind;
+
+    #[tokio::test]
+    async fn a_drive_id_returned_in_a_different_case_finds_the_namespace_already_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::open(dir.path().join("nexofs.sqlite3")).unwrap();
+        let account_id = AccountId::new();
+        let account_id_s = account_id.to_string();
+        store
+            .write(move |tx| {
+                tx.execute(
+                    "INSERT INTO providers (provider_id, display_name, capabilities_json, created_at, updated_at) VALUES ('onedrive', 'OneDrive', '{}', 0, 0)",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO accounts (account_id, provider_id, provider_account_id, account_type, display_name, auth_state, created_at, updated_at) VALUES (?1, 'onedrive', 'conta', 'PERSONAL', 'Conta', 'VALID', 0, 0)",
+                    [account_id_s],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let stored = RemoteNamespace { remote_namespace_id: "8481c64b3e114219".to_string(), display_name: "OneDrive".to_string(), kind: NamespaceKind::Personal };
+        let mount_path = dir.path().join("Conta");
+        let namespace_id = insert_namespace_row(&store, account_id, &stored, &mount_path).await.unwrap();
+
+        let found = find_existing_namespace(&store, account_id, "8481C64B3E114219").await.unwrap();
+
+        assert_eq!(found, Some((namespace_id, mount_path, "OneDrive".to_string())));
+    }
 }

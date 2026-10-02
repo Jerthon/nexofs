@@ -1,3 +1,18 @@
+nexofs (0.1.2-1) unstable; urgency=medium
+
+  * Corrige o daemon não subindo ("UNIQUE constraint failed:
+    namespaces.mount_path") quando o Microsoft Graph passa a devolver o ID
+    do drive de uma conta OneDrive pessoal com outra caixa (maiúsculas em
+    vez de minúsculas): a busca do namespace já indexado não o encontrava e
+    tentava criar um segundo no mesmo ponto de montagem. A comparação agora
+    ignora maiúsculas/minúsculas.
+  * Interface desktop: nova aba "Serviço" com o estado do nexofsd
+    (systemd --user), contador de reinícios automáticos e as últimas linhas
+    do log do serviço, com botões para iniciar, parar e reiniciar — sempre
+    com confirmação antes. O estado do serviço também aparece no cabeçalho.
+
+ -- NexoFS <noreply@nexofs.dev>  Fri, 02 Oct 2026 12:00:00 -0300
+
 nexofs (0.1.1-1) unstable; urgency=medium
 
   * Corrige o access token do provedor nunca ser renovado depois do mount
